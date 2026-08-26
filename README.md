@@ -147,7 +147,8 @@ python src/inference.py --input insat_frames/ --interval 15min
 - **Soumyadip Jana** 
 - Sayan Adak
 - Aniruddha Das
-- Pijush pore 
+- Pijush Pore 
+- krishanu Sahoo
 
 
 ---
