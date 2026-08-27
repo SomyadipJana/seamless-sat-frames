@@ -143,7 +143,7 @@ python src/inference.py --input insat_frames/ --interval 15min
 
 ## Team
 
-- **Souraddep pradhan**
+- **Souradep pradhan**
 - **Soumyadip Jana** 
 - Sayan Adak
 - Aniruddha Das
