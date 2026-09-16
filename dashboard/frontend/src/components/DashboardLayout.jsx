@@ -28,10 +28,13 @@ const DashboardLayout = () => {
       {/* App Sidebar */}
       <aside className="dashboard-sidebar">
         <div className="sidebar-header">
-          <div className="sidebar-logo">
-            <Satellite size={18} />
+          <div className="sidebar-logo-img" style={{ display: 'flex', alignItems: 'center' }}>
+            <img 
+              src="/logo.png" 
+              alt="" 
+              style={{ height: '28px', width: 'auto', filter: 'brightness(0)', objectFit: 'contain' }} 
+            />
           </div>
-          <span className="sidebar-title">SeamlessSAT</span>
         </div>
         
         <nav className="sidebar-nav">
