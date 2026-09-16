@@ -1,13 +1,38 @@
-import React, { useState } from 'react';
-import { Play, Pause, Maximize2, SkipForward, SkipBack } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Play, Pause, Maximize2, Minimize2, SkipForward, SkipBack } from 'lucide-react';
 import { LiquidCard } from './ui/LiquidCard';
 
 const ComparisonViewer = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(50);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const videoContainerRef = useRef(null);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   const handlePlayPause = () => {
     setIsPlaying(!isPlaying);
+  };
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      if (videoContainerRef.current) {
+        videoContainerRef.current.requestFullscreen().catch(err => {
+          console.error(`Error attempting to enable fullscreen: ${err.message}`);
+        });
+      }
+    } else {
+      document.exitFullscreen();
+    }
   };
 
   return (
@@ -22,13 +47,13 @@ const ComparisonViewer = () => {
             <option>15-min Interval</option>
             <option>7.5-min Interval</option>
           </select>
-          <button className="viewer-icon-btn">
-            <Maximize2 size={16} />
+          <button className="viewer-icon-btn" onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
         </div>
       </div>
 
-      <div className="viewer-video-container">
+      <div className="viewer-video-container" ref={videoContainerRef}>
         <div className="video-placeholder">
           <div className="comparison-slider">
             <div className="original-view">

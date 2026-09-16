@@ -1,8 +1,28 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Globe, Settings, Satellite, RefreshCw, Bell } from 'lucide-react';
+import { LayoutDashboard, Globe, Settings, Satellite, RefreshCw, Bell, Check } from 'lucide-react';
 
 const DashboardLayout = () => {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateSuccess, setGenerateSuccess] = useState(false);
+
+  const handleGenerate = () => {
+    if (isGenerating || generateSuccess) return;
+    
+    setIsGenerating(true);
+    
+    // Simulate generation delay
+    setTimeout(() => {
+      setIsGenerating(false);
+      setGenerateSuccess(true);
+      
+      // Revert back after success message
+      setTimeout(() => {
+        setGenerateSuccess(false);
+      }, 3000);
+    }, 2000);
+  };
+
   return (
     <div className="dashboard-container font-sans">
       {/* App Sidebar */}
@@ -40,9 +60,30 @@ const DashboardLayout = () => {
         </nav>
 
         <div className="sidebar-footer">
-          <button className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[var(--app-ink)] text-white font-semibold text-sm hover:opacity-90 transition-opacity">
-            <RefreshCw size={14} />
-            Generate Frames
+          <button 
+            onClick={handleGenerate}
+            disabled={isGenerating}
+            className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-white font-semibold text-sm transition-all ${
+              generateSuccess ? 'bg-green-600' : 'bg-[var(--app-ink)] hover:opacity-90'
+            }`}
+            style={generateSuccess ? { backgroundColor: '#10b981' } : {}}
+          >
+            {isGenerating ? (
+              <>
+                <RefreshCw size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+                Generating...
+              </>
+            ) : generateSuccess ? (
+              <>
+                <Check size={14} />
+                Success!
+              </>
+            ) : (
+              <>
+                <RefreshCw size={14} />
+                Generate Frames
+              </>
+            )}
           </button>
         </div>
       </aside>
