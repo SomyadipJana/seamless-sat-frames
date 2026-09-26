@@ -349,9 +349,6 @@
   color: var(--app-muted);
   text-transform: uppercase;
   letter-spacing: 0.025em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 @media (min-width: 640px) {

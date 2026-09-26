@@ -32,7 +32,7 @@ const DashboardLayout = () => {
             <img 
               src="/logo.png" 
               alt="" 
-              style={{ height: '28px', width: 'auto', filter: 'brightness(0)', objectFit: 'contain' }} 
+              style={{ height: '44px', width: 'auto', filter: 'brightness(0)', objectFit: 'contain' }} 
             />
           </div>
         </div>
@@ -51,7 +51,7 @@ const DashboardLayout = () => {
             className={({ isActive }) => `sidebar-nav-item ${isActive ? 'active' : ''}`}
           >
             <Globe size={18} />
-            Satellites (GOES-19)
+            Satellites
           </NavLink>
           <NavLink 
             to="/config" 
