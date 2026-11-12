@@ -1,8 +1,37 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { LiquidCard } from '../components/ui/LiquidCard';
 import { Globe, RefreshCw } from 'lucide-react';
+import { getJson } from '../lib/api';
 
 const SatellitesPage = () => {
+  const [satellite, setSatellite] = useState({
+    status: 'Online',
+    last_sync: '2 minutes ago',
+    ingestion_gb_per_hour: 4.2,
+    ingestion_trend: 12,
+    instrument: 'GOES-19 ABI',
+    feed: null,
+  });
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      getJson('/api/satellite')
+        .then((data) => {
+          if (active) setSatellite((current) => ({ ...current, ...data }));
+        })
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener('frames-updated', load);
+    return () => {
+      active = false;
+      window.removeEventListener('frames-updated', load);
+    };
+  }, []);
+
+  const trend = Number(satellite.ingestion_trend);
+
   return (
     <div className="flex flex-col gap-6" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <div style={{ marginBottom: '12px' }}>
@@ -19,9 +48,9 @@ const SatellitesPage = () => {
             </span>
           </div>
           <div className="metric-value-container" style={{ color: '#10b981' }}>
-            Online
+            {satellite.status}
           </div>
-          <p className="metric-trend">Last sync: 2 minutes ago</p>
+          <p className="metric-trend">Last sync: {satellite.last_sync}</p>
         </LiquidCard>
 
         <LiquidCard className="metric-card">
@@ -32,21 +61,29 @@ const SatellitesPage = () => {
             </span>
           </div>
           <div className="metric-value-container">
-            4.2 <span className="metric-unit">GB/h</span>
+            {satellite.ingestion_gb_per_hour} <span className="metric-unit">GB/h</span>
           </div>
-          <p className="metric-trend trend-positive">+12% from average</p>
+          <p className={`metric-trend ${trend >= 0 ? 'trend-positive' : 'trend-negative'}`}>
+            {trend > 0 ? '+' : ''}{trend}% from average
+          </p>
         </LiquidCard>
       </div>
 
       <LiquidCard className="history-card" style={{ minHeight: '400px' }}>
         <div className="history-header">
           <h4 className="history-title">Global View (Live Feed)</h4>
-          <span className="history-badge">GOES-19 ABI</span>
+          <span className="history-badge">{satellite.instrument}</span>
         </div>
-        <div className="history-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#e2e8f0' }}>
-          <Globe size={48} color="var(--app-muted)" style={{ marginBottom: '16px' }} />
-          <p className="history-placeholder">Live satellite feed placeholder</p>
-          <p style={{ fontSize: '12px', color: 'var(--app-muted)', marginTop: '8px' }}>Waiting for stream connection...</p>
+        <div className="history-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#e2e8f0', overflow: 'hidden' }}>
+          {satellite.feed ? (
+            <img src={satellite.feed} alt="GOES-19 ABI" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <>
+              <Globe size={48} color="var(--app-muted)" style={{ marginBottom: '16px' }} />
+              <p className="history-placeholder">Live satellite feed placeholder</p>
+              <p style={{ fontSize: '12px', color: 'var(--app-muted)', marginTop: '8px' }}>Waiting for stream connection...</p>
+            </>
+          )}
         </div>
       </LiquidCard>
     </div>

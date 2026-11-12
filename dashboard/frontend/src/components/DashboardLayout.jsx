@@ -1,26 +1,26 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { LayoutDashboard, Globe, Settings, Satellite, RefreshCw, Bell, Check } from 'lucide-react';
+import { sendJson } from '../lib/api';
 
 const DashboardLayout = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateSuccess, setGenerateSuccess] = useState(false);
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (isGenerating || generateSuccess) return;
-    
+
     setIsGenerating(true);
-    
-    // Simulate generation delay
-    setTimeout(() => {
-      setIsGenerating(false);
+    try {
+      await sendJson('/api/generate', {});
+      window.dispatchEvent(new Event('frames-updated'));
       setGenerateSuccess(true);
-      
-      // Revert back after success message
-      setTimeout(() => {
-        setGenerateSuccess(false);
-      }, 3000);
-    }, 2000);
+      setTimeout(() => setGenerateSuccess(false), 3000);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (

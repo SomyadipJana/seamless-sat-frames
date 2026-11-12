@@ -1,8 +1,35 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { LiquidCard } from '../components/ui/LiquidCard';
-import { Save, Cpu, Zap, Sliders, Database } from 'lucide-react';
+import { Save, Cpu, Zap, Sliders, Database, Check } from 'lucide-react';
+import { getJson, sendJson } from '../lib/api';
+
+const DEFAULTS = {
+  temporal_resolution: '15-min Interval',
+  inference_precision: 'FP16 (Recommended)',
+  sharpening: 45,
+  prefetch_buffer: '24 Frames (Standard)',
+  tensorrt: true,
+};
 
 const ModelConfigPage = () => {
+  const [config, setConfig] = useState(DEFAULTS);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    getJson('/api/config')
+      .then((data) => setConfig((current) => ({ ...current, ...data })))
+      .catch(() => {});
+  }, []);
+
+  const update = (key, value) => setConfig((current) => ({ ...current, [key]: value }));
+
+  const save = async () => {
+    const next = await sendJson('/api/config', config, 'PUT');
+    setConfig((current) => ({ ...current, ...next }));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
   return (
     <div className="config-page-container">
       <div className="config-page-header">
@@ -11,7 +38,6 @@ const ModelConfigPage = () => {
       </div>
 
       <div className="config-grid">
-        {/* Core Engine Card */}
         <LiquidCard className="config-card">
           <div className="config-card-header">
             <div className="config-icon-wrapper blue-glow">
@@ -29,7 +55,11 @@ const ModelConfigPage = () => {
                 Temporal Resolution
                 <span className="config-badge">Critical</span>
               </label>
-              <select className="config-select">
+              <select
+                className="config-select"
+                value={config.temporal_resolution}
+                onChange={(event) => update('temporal_resolution', event.target.value)}
+              >
                 <option>15-min Interval</option>
                 <option>10-min Interval</option>
                 <option>7.5-min Interval</option>
@@ -40,7 +70,11 @@ const ModelConfigPage = () => {
 
             <div className="config-field">
               <label className="config-label">Inference Precision</label>
-              <select className="config-select">
+              <select
+                className="config-select"
+                value={config.inference_precision}
+                onChange={(event) => update('inference_precision', event.target.value)}
+              >
                 <option>FP16 (Recommended)</option>
                 <option>FP32 (High Accuracy)</option>
                 <option>INT8 (Fastest)</option>
@@ -54,14 +88,20 @@ const ModelConfigPage = () => {
                 </div>
               </label>
               <div className="config-slider-container">
-                <input type="range" min="0" max="100" defaultValue="45" className="config-range" />
-                <span className="config-range-value">45%</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={config.sharpening}
+                  onChange={(event) => update('sharpening', Number(event.target.value))}
+                  className="config-range"
+                />
+                <span className="config-range-value">{config.sharpening}%</span>
               </div>
             </div>
           </div>
         </LiquidCard>
 
-        {/* Caching & Data Card */}
         <LiquidCard className="config-card">
           <div className="config-card-header">
             <div className="config-icon-wrapper purple-glow">
@@ -76,7 +116,11 @@ const ModelConfigPage = () => {
           <div className="config-form-group">
              <div className="config-field">
               <label className="config-label">Pre-fetch Buffer Size</label>
-              <select className="config-select">
+              <select
+                className="config-select"
+                value={config.prefetch_buffer}
+                onChange={(event) => update('prefetch_buffer', event.target.value)}
+              >
                 <option>24 Frames (Standard)</option>
                 <option>48 Frames (High VRAM)</option>
                 <option>12 Frames (Low VRAM)</option>
@@ -91,9 +135,14 @@ const ModelConfigPage = () => {
               </label>
               <div className="config-toggle-row">
                 <span style={{ fontSize: '14px', fontWeight: '500', color: 'var(--app-ink)' }}>Use TensorRT</span>
-                <div className="config-toggle active">
+                <button
+                  type="button"
+                  className={`config-toggle ${config.tensorrt ? 'active' : ''}`}
+                  onClick={() => update('tensorrt', !config.tensorrt)}
+                  aria-pressed={config.tensorrt}
+                >
                   <div className="config-toggle-knob"></div>
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -101,9 +150,9 @@ const ModelConfigPage = () => {
       </div>
 
       <div className="config-actions-row">
-        <button className="config-save-btn">
-          <Save size={16} />
-          Save Configuration
+        <button className="config-save-btn" onClick={save}>
+          {saved ? <Check size={16} /> : <Save size={16} />}
+          {saved ? 'Saved' : 'Save Configuration'}
         </button>
       </div>
     </div>

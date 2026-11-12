@@ -1,8 +1,11 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Satellite } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const LandingPage = ({ onEnter }) => {
+  const navigate = useNavigate();
+  const enter = onEnter || (() => navigate('/'));
   return (
     <div 
       className="h-screen w-screen overflow-hidden bg-black font-sans relative flex flex-col"
@@ -40,7 +43,7 @@ const LandingPage = ({ onEnter }) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.1, ease: "easeOut" }}
-            onClick={onEnter}
+            onClick={enter}
             className="group flex items-center bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white transition-all shadow-sm"
             style={{ padding: '14px 28px', borderRadius: '8px', gap: '8px', fontSize: '16px', fontWeight: '500' }}
           >
