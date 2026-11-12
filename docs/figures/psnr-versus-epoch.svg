@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="360" viewBox="0 0 680 360" role="img">
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="72" y="24" font-family="Georgia, Times New Roman, serif" font-size="15" fill="#111827">Figure 3. Peak signal-to-noise ratio versus epoch</text>
+  <line x1="72" y1="312.0" x2="656" y2="312.0" stroke="#e6e8eb"/><text x="64" y="316.0" text-anchor="end" font-size="11" fill="#5c6570">20.0</text><line x1="72" y1="245.5" x2="656" y2="245.5" stroke="#e6e8eb"/><text x="64" y="249.5" text-anchor="end" font-size="11" fill="#5c6570">23.5</text><line x1="72" y1="179.0" x2="656" y2="179.0" stroke="#e6e8eb"/><text x="64" y="183.0" text-anchor="end" font-size="11" fill="#5c6570">27.0</text><line x1="72" y1="112.5" x2="656" y2="112.5" stroke="#e6e8eb"/><text x="64" y="116.5" text-anchor="end" font-size="11" fill="#5c6570">30.5</text><line x1="72" y1="46.0" x2="656" y2="46.0" stroke="#e6e8eb"/><text x="64" y="50.0" text-anchor="end" font-size="11" fill="#5c6570">34.0</text>
+  <line x1="72" y1="46" x2="72" y2="312" stroke="#111827"/>
+  <line x1="72" y1="312" x2="656" y2="312" stroke="#111827"/>
+  
+  <polyline fill="none" stroke="#9a3412" stroke-width="2.2" points="72.0,237.1 87.0,98.4 101.9,95.0 116.9,92.9 131.9,91.6 146.9,91.4 161.8,91.0 176.8,91.0 191.8,90.8 206.8,90.8 221.7,90.8 236.7,90.8 251.7,90.8 266.7,90.8 281.6,90.8 296.6,90.8 311.6,90.8 326.6,90.8 341.5,90.8 356.5,90.8 371.5,90.8 386.5,90.8 401.4,90.8 416.4,90.8 431.4,90.8 446.4,90.8 461.3,90.8 476.3,90.8 491.3,90.8 506.3,90.8 521.2,90.8 536.2,90.8 551.2,90.8 566.2,90.8 581.1,90.8 596.1,90.8 611.1,90.8 626.1,90.8 641.0,90.8 656.0,90.8"/>
+  <text x="72.0" y="342" text-anchor="middle" font-size="11" fill="#5c6570">1</text><text x="206.8" y="342" text-anchor="middle" font-size="11" fill="#5c6570">10</text><text x="356.5" y="342" text-anchor="middle" font-size="11" fill="#5c6570">20</text><text x="506.3" y="342" text-anchor="middle" font-size="11" fill="#5c6570">30</text><text x="656.0" y="342" text-anchor="middle" font-size="11" fill="#5c6570">40</text>
+  <text x="364" y="356" text-anchor="middle" font-size="12" fill="#111827">Epoch</text>
+  <text x="16" y="179" text-anchor="middle" font-size="12" fill="#111827" transform="rotate(-90 16 179)">PSNR (dB)</text>
+</svg>
