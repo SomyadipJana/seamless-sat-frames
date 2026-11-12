@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type React from "react";
 
 const B = import.meta.env.BASE_URL;
@@ -14,8 +15,8 @@ export const LogoIcon = (props: React.ComponentProps<"img">) => (
 export const Logo = (props: React.ComponentProps<"img">) => (
 	<img
 		src={`${B}images/banner.png`}
-		alt="Trace"
-		className="h-6 object-contain"
+		alt="Satellite"
+		className="h-10 object-contain"
 		{...props}
 	/>
 );

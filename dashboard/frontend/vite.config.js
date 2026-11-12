@@ -13,9 +13,54 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": "http://127.0.0.1:5000",
-      "/interpolate": "http://127.0.0.1:5000",
-      "/download_h5": "http://127.0.0.1:5000",
-    },
-  },
+      '/gallery': {
+        target: 'https://mosdac.gov.in',
+        changeOrigin: true,
+        configure: (proxy, options) => {
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            delete proxyRes.headers['x-frame-options'];
+            delete proxyRes.headers['content-security-policy'];
+          });
+        }
+      },
+      '/common': {
+        target: 'https://mosdac.gov.in',
+        changeOrigin: true,
+      },
+      '/assets': {
+        target: 'https://mosdac.gov.in',
+        changeOrigin: true,
+      },
+      '/api': {
+        target: 'https://mosdac.gov.in',
+        changeOrigin: true,
+      },
+      '/interpolate': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+      '/generate': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+      '/download_h5': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+      '/config': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      },
+      '/live': {
+        target: 'https://mosdac.gov.in',
+        changeOrigin: true,
+        configure: (proxy, options) => {
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            delete proxyRes.headers['x-frame-options'];
+            delete proxyRes.headers['content-security-policy'];
+          });
+        }
+      }
+    }
+  }
 })

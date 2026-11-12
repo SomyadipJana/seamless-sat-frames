@@ -1,68 +1,51 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Activity, Zap, Layers, Target } from 'lucide-react';
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { LiquidCard } from './ui/LiquidCard';
-import { getJson } from '../lib/api';
+import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 
-const ICONS = {
-  ssim: Layers,
-  psnr: Activity,
-  mse: Target,
-  fsim: Zap,
+const generateMockData = (trend) => {
+  return Array.from({ length: 15 }, (_, i) => ({
+    value: 50 + (trend > 0 ? i * 2 : -i * 2) + Math.random() * 10
+  }));
 };
 
-const FALLBACK = [
-  { key: 'ssim', title: 'SSIM (Structure)', value: '0.912', unit: 'Idx', trend: 4.2 },
-  { key: 'psnr', title: 'PSNR (Noise)', value: '34.8', unit: 'dB', trend: 2.1 },
-  { key: 'mse', title: 'MSE (Error)', value: '0.0034', unit: '', trend: -12.5 },
-  { key: 'fsim', title: 'FSIM (Features)', value: '0.885', unit: 'Idx', trend: 3.8 },
-];
+const ssimData = generateMockData(1);
+const psnrData = generateMockData(1);
+const mseData = generateMockData(-1);
+const fsimData = generateMockData(1);
 
-const AnalyticsBlock = ({ title, value, unit, icon: Icon, trend, index }) => (
-  <LiquidCard index={index} className="metric-card">
-    <div className="metric-header">
+const AnalyticsBlock = ({ title, value, unit, icon: Icon, index, chartData, color }) => (
+  <LiquidCard index={index} className="metric-card flex flex-col justify-between h-[150px]">
+    <div className="metric-header mb-1">
       <span className="metric-title">{title}</span>
       <span className="metric-icon">
         <Icon size={16} />
       </span>
     </div>
-    <div className="metric-value-container">
+    <div className="metric-value-container mb-1 z-10 relative">
       {value} <span className="metric-unit">{unit}</span>
     </div>
-    <p className={`metric-trend ${trend >= 0 ? 'trend-positive' : 'trend-negative'}`}>
-      {trend > 0 ? '+' : ''}{trend}% from baseline
-    </p>
+    <div className="w-full h-12 mt-auto relative -mx-2 opacity-80">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData}>
+          <YAxis domain={['dataMin', 'dataMax']} hide />
+          <Line 
+            type="monotone" 
+            dataKey="value" 
+            stroke={color} 
+            strokeWidth={2.5} 
+            dot={false} 
+            isAnimationActive={true} 
+            animationDuration={1500}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   </LiquidCard>
 );
 
-const MetricsPanel = () => {
-  const [metrics, setMetrics] = useState(FALLBACK);
-  const [history, setHistory] = useState([]);
-
-  useEffect(() => {
-    let active = true;
-
-    const load = () => {
-      getJson('/api/metrics')
-        .then((data) => {
-          if (active && data.metrics?.length) setMetrics(data.metrics);
-        })
-        .catch(() => {});
-      getJson('/api/metrics/history')
-        .then((data) => {
-          if (active && data.points) setHistory(data.points);
-        })
-        .catch(() => {});
-    };
-
-    load();
-    window.addEventListener('frames-updated', load);
-    return () => {
-      active = false;
-      window.removeEventListener('frames-updated', load);
-    };
-  }, []);
-
+const MetricsPanel = ({ uploadData }) => {
+  const scores = uploadData?.metrics;
   return (
     <div className="metrics-panel">
       <div>
@@ -70,19 +53,44 @@ const MetricsPanel = () => {
           <p className="metrics-section-subtitle">Evaluation Metrics</p>
           <h2 className="metrics-section-title">Performance on GOES-19</h2>
         </div>
-
+        
         <div className="metrics-grid">
-          {metrics.map((metric, index) => (
-            <AnalyticsBlock
-              key={metric.key}
-              title={metric.title}
-              value={metric.value}
-              unit={metric.unit}
-              icon={ICONS[metric.key] || Activity}
-              trend={Number(metric.trend)}
-              index={index + 1}
-            />
-          ))}
+          <AnalyticsBlock 
+            title="SSIM (Structure)" 
+            value={scores?.ssim ?? "0.912"} 
+            unit="Idx" 
+            icon={Layers} 
+            index={1} 
+            chartData={ssimData}
+            color="#2563eb"
+          />
+          <AnalyticsBlock 
+            title="PSNR (Noise)" 
+            value={scores?.psnr ?? "34.8"} 
+            unit="dB" 
+            icon={Activity} 
+            index={2} 
+            chartData={psnrData}
+            color="#0ea5e9"
+          />
+          <AnalyticsBlock 
+            title="MSE (Error)" 
+            value={scores?.mse ?? "0.0034"} 
+            unit="" 
+            icon={Target} 
+            index={3} 
+            chartData={mseData}
+            color="#ef4444"
+          />
+          <AnalyticsBlock 
+            title="FSIM (Features)" 
+            value={scores?.fsim ?? "0.885"} 
+            unit="Idx" 
+            icon={Zap} 
+            index={4} 
+            chartData={fsimData}
+            color="#8b5cf6"
+          />
         </div>
       </div>
 
@@ -91,19 +99,20 @@ const MetricsPanel = () => {
           <h4 className="history-title">Performance History</h4>
           <span className="history-badge">Last 24h</span>
         </div>
-        <div className="history-content" style={{ padding: 8 }}>
-          {history.length === 0 ? (
-            <p className="history-placeholder">Interactive Chart Loading...</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={history}>
-                <XAxis dataKey="time" hide />
-                <YAxis hide domain={['auto', 'auto']} />
-                <Tooltip />
-                <Line type="monotone" dataKey="ssim" stroke="#2563eb" dot={false} strokeWidth={2} name="SSIM" />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
+        <div className="history-content relative h-32 w-full mt-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={ssimData}>
+              <YAxis domain={['dataMin', 'dataMax']} hide />
+              <Line 
+                type="monotone" 
+                dataKey="value" 
+                stroke="#2563eb" 
+                strokeWidth={3} 
+                dot={false} 
+                isAnimationActive={true} 
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </LiquidCard>
     </div>

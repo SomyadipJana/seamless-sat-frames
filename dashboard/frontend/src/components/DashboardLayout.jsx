@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { LayoutDashboard, Globe, Settings, Satellite, RefreshCw, Bell, Check } from 'lucide-react';
-import { sendJson } from '../lib/api';
 
 const DashboardLayout = () => {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -12,8 +11,14 @@ const DashboardLayout = () => {
 
     setIsGenerating(true);
     try {
-      await sendJson('/api/generate', {});
-      window.dispatchEvent(new Event('frames-updated'));
+      const response = await fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!response.ok) throw new Error('Generate failed');
+      const data = await response.json();
+      window.dispatchEvent(new CustomEvent('frames-updated', { detail: data }));
       setGenerateSuccess(true);
       setTimeout(() => setGenerateSuccess(false), 3000);
     } catch (error) {
@@ -32,7 +37,7 @@ const DashboardLayout = () => {
             <img 
               src="/logo.png" 
               alt="" 
-              style={{ height: '28px', width: 'auto', filter: 'brightness(0)', objectFit: 'contain' }} 
+              style={{ height: '44px', width: 'auto', filter: 'brightness(0)', objectFit: 'contain' }} 
             />
           </div>
         </div>
@@ -51,7 +56,7 @@ const DashboardLayout = () => {
             className={({ isActive }) => `sidebar-nav-item ${isActive ? 'active' : ''}`}
           >
             <Globe size={18} />
-            Satellites (GOES-19)
+            Satellites
           </NavLink>
           <NavLink 
             to="/config" 

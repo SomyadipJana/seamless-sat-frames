@@ -1,15 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Pause, Maximize2, Minimize2, SkipForward, SkipBack } from 'lucide-react';
 import { LiquidCard } from './ui/LiquidCard';
-import { getJson } from '../lib/api';
 
-const ComparisonViewer = () => {
+const ComparisonViewer = ({ uploadData }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(50);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [interval, setIntervalValue] = useState('15-min Interval');
-  const [frames, setFrames] = useState([]);
-  const [index, setIndex] = useState(0);
   const videoContainerRef = useRef(null);
 
   useEffect(() => {
@@ -22,34 +18,6 @@ const ComparisonViewer = () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    const load = () => {
-      getJson(`/api/comparison?interval=${encodeURIComponent(interval)}`)
-        .then((data) => {
-          if (!active) return;
-          setFrames(data.frames || []);
-          setIndex(data.active_index ?? 0);
-          if (data.interval) setIntervalValue(data.interval);
-        })
-        .catch(() => {});
-    };
-    load();
-    window.addEventListener('frames-updated', load);
-    return () => {
-      active = false;
-      window.removeEventListener('frames-updated', load);
-    };
-  }, [interval]);
-
-  useEffect(() => {
-    if (!isPlaying || frames.length === 0) return undefined;
-    const timer = setInterval(() => {
-      setIndex((current) => (current + 1) % frames.length);
-    }, 800);
-    return () => clearInterval(timer);
-  }, [isPlaying, frames.length]);
 
   const handlePlayPause = () => {
     setIsPlaying(!isPlaying);
@@ -67,17 +35,6 @@ const ComparisonViewer = () => {
     }
   };
 
-  const frame = frames[index];
-  const groundTruth = frame?.ground_truth;
-  const generated = frame?.image;
-  const timeLabel = frame?.label || '04:30 UTC';
-  const fill = frames.length > 1 ? (index / (frames.length - 1)) * 100 : 45;
-
-  const step = (direction) => {
-    if (!frames.length) return;
-    setIndex((current) => (current + direction + frames.length) % frames.length);
-  };
-
   return (
     <LiquidCard index={0} className="viewer-card">
       <div className="viewer-header">
@@ -86,7 +43,7 @@ const ComparisonViewer = () => {
           <p className="viewer-subtitle">Ground truth vs AI interpolation</p>
         </div>
         <div className="viewer-actions">
-          <select className="viewer-select" value={interval} onChange={(event) => setIntervalValue(event.target.value)}>
+          <select className="viewer-select">
             <option>15-min Interval</option>
             <option>7.5-min Interval</option>
           </select>
@@ -103,14 +60,14 @@ const ComparisonViewer = () => {
               <span className="badge badge-gt">Ground Truth (GOES-19)</span>
               <div
                 className="fake-img gt-img"
-                style={groundTruth ? { backgroundImage: `url(${groundTruth})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+                style={uploadData?.ground_truth ? { backgroundImage: `url(${uploadData.ground_truth})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
               ></div>
             </div>
             <div className="generated-view" style={{ width: `${100 - progress}%` }}>
               <span className="badge badge-gen">AI Interpolated</span>
               <div
                 className="fake-img gen-img absolute right-0"
-                style={generated ? { backgroundImage: `url(${generated})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+                style={uploadData?.base_image ? { backgroundImage: `url(${uploadData.base_image})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
               ></div>
             </div>
             <div className="slider-handle" style={{ left: `${progress}%` }}>
@@ -134,20 +91,20 @@ const ComparisonViewer = () => {
       </div>
 
       <div className="viewer-controls">
-        <button className="viewer-control-btn" onClick={() => step(-1)}>
+        <button className="viewer-control-btn">
           <SkipBack size={18} />
         </button>
         <button className="viewer-play-btn" onClick={handlePlayPause}>
           {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-1" />}
         </button>
-        <button className="viewer-control-btn" onClick={() => step(1)}>
+        <button className="viewer-control-btn">
           <SkipForward size={18} />
         </button>
         <div className="viewer-progress-bar">
           <div className="viewer-progress-track">
-            <div className="viewer-progress-fill" style={{ width: `${fill}%` }}></div>
+            <div className="viewer-progress-fill" style={{ width: '45%' }}></div>
           </div>
-          <span className="viewer-time">{timeLabel}</span>
+          <span className="viewer-time">04:30 UTC</span>
         </div>
       </div>
     </LiquidCard>

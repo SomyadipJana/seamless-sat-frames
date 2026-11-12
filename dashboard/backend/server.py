@@ -381,17 +381,45 @@ def sync_label(iso_stamp):
     return f"{minutes} minutes ago"
 
 
+def read_upload(file_storage):
+    raw = np.frombuffer(file_storage.read(), np.uint8)
+    image = cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        raise ValueError("Could not read image")
+    return image
+
+
+def store_pair(frame0, frame2, synthesize_truth):
+    os.makedirs("data/processed", exist_ok=True)
+    cv2.imwrite("data/processed/frame_000.png", frame0)
+    cv2.imwrite("data/processed/frame_002.png", frame2)
+    if synthesize_truth or not os.path.exists("data/processed/frame_001.png"):
+        middle = cv2.addWeighted(frame0, 0.5, frame2, 0.5, 0)
+        cv2.imwrite("data/processed/frame_001.png", middle)
+
+
 @app.route("/interpolate", methods=["POST"])
 def interpolate():
-    if "frame1" not in request.files or "frame3" not in request.files:
+    if "frame1" not in request.files:
         return {"error": "Missing frames"}, 400
     try:
-        t0_data = process_image(request.files["frame1"])
-        t2_data = process_image(request.files["frame3"])
+        frame0 = read_upload(request.files["frame1"])
+        if "frame3" in request.files and request.files["frame3"].filename:
+            frame2 = read_upload(request.files["frame3"])
+            synthesize_truth = False
+        else:
+            frame2 = np.roll(frame0, 16, axis=1)
+            synthesize_truth = True
+        store_pair(frame0, frame2, synthesize_truth)
+        t0_data = prepare_array(frame0)
+        t2_data = prepare_array(frame2)
     except ValueError as exc:
         return {"error": str(exc)}, 400
     resolution = request.form.get("resolution", "15min")
     result = run_interpolation(t0_data, t2_data, resolution)
+    truth = cv2.imread("data/processed/frame_001.png", cv2.IMREAD_GRAYSCALE)
+    if truth is not None:
+        result["ground_truth"] = img_to_base64(truth)
     remember(result, resolution)
     return jsonify(result)
 
@@ -454,12 +482,15 @@ def satellite():
 
 
 @app.get("/api/config")
+@app.get("/config")
 def get_config():
     return jsonify(load_state()["config"])
 
 
 @app.put("/api/config")
 @app.post("/api/config")
+@app.put("/config")
+@app.post("/config")
 def put_config():
     payload = request.get_json(silent=True) or {}
     state = load_state()
@@ -497,11 +528,12 @@ def generate():
         save_state(state)
     resolution = isro_resolution(state["config"]["temporal_resolution"])
     state = generate_from_processed(resolution)
-    return jsonify({
-        "status": "success",
-        "metrics": {"satellite": "GOES-19", "metrics": dashboard_metrics(state["result"])},
-        "comparison": comparison_payload(state),
-    })
+    payload = dict(state["result"])
+    payload["status"] = "success"
+    truth = cv2.imread("data/processed/frame_001.png", cv2.IMREAD_GRAYSCALE)
+    if truth is not None:
+        payload["ground_truth"] = img_to_base64(truth)
+    return jsonify(payload)
 
 
 if __name__ == "__main__":
