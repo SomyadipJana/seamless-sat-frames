@@ -8,11 +8,40 @@ Temporal super-resolution of geostationary thermal imagery. Given two brightness
 [![React](https://img.shields.io/badge/Frontend-React-149eca)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+## Run a real satellite example
+
+The [pipeline notebook](Seamless_SAT_Frames_Pipeline.ipynb) runs both methods, evaluates them against the observed midpoint, and exports the results.
+
+Start both services from the repository root in separate PowerShell terminals.
+
+Backend:
+
+```powershell
+cd dashboard\backend
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe server.py
+```
+
+Frontend:
+
+```powershell
+cd dashboard\frontend
+npm.cmd ci
+npm.cmd run dev
+```
+
+For a 30-minute test, open [the dashboard](http://localhost:5173), select **Milton**, and click **Run Hurricane Milton**. The three fixed-grid crops are NOAA GOES-16 ABI Channel 13 observations of Hurricane Milton on 9 October 2024 at 18:01, 18:16, and 18:31 UTC. They use a shared 180?330 K intensity scale and the same 384 ? 384 crop. The **Change between observations** layer shows the pixel differences between the endpoints. [NOAA archive, 18 UTC](https://noaa-goes16.s3.amazonaws.com/?list-type=2&prefix=ABI-L2-CMIPC%2F2024%2F283%2F18%2F)
+
+Open [the dashboard](http://localhost:5173) and select **GOES-18**, and click **Run GOES sample**. Linear blend is the default. Select **U-Net (experimental)** to use the bundled GOES-18 starter checkpoint built with the [reference residual U-Net architecture](https://github.com/pradhan-not-found/ISRO/blob/main/backend/model.py). It uses three bundled GOES-18 ABI Channel 13 thermal infrared observations from NOAA for 1 January 2024, in the 12:00, 12:10 and 12:20 UTC scans. The first and last observations are inputs and the actual middle observation is held out for evaluation. The midpoint lies 10 minutes after the first observation. Choosing **Midpoint and quarters** generates frames at offsets of 5, 10 and 15 minutes.
+
+For your own data, select the first and last co-registered thermal infrared PNG or JPEG observations. Use the same area, band, dimensions and intensity scale. The server scales larger triplets together to a working grid up to 768 pixels on the longer side. The viewer and HDF5 metadata report the input dimensions, and exports use the working grid. Identical endpoints produce an unchanged sequence. Enter the time between the two observations. For 30-minute INSAT endpoints the modes produce a 15-minute midpoint or three predictions at 7.5, 15 and 22.5 minutes. Supply the observed midpoint when you have one to see evaluation metrics. Play or scrub through the observation sequence. Switch layers to see the linear midpoint, the difference from that blend, predicted edges, or the absolute error when an observed midpoint is available. **PNG** downloads the selected layer or frame. **HDF5** exports the latest predictions with their relative time offsets.
+
 ## Abstract
 
 Geostationary imagers observe the same disc on a fixed clock. INSAT-3DS and INSAT-3DR thermal infrared frames arrive every 30 minutes. GOES-19 ABI and Himawari-8 are faster, at about 10 minutes, which makes them the natural place to learn a middle frame that can later be checked. Cloud motion in this band is non-rigid: cells rotate, merge, split, and decay, so a displacement borrowed from rigid optical flow smears the cold cores that matter for cyclones, convective outbreaks, and fire fronts.
 
-This repository is the working system for that problem. A six-channel temporal U-Net predicts a residual on top of the linear blend of the two endpoints. When PyTorch is unavailable, the same service falls back to an OpenCV blend so the dashboard, the metric report, and the HDF5 export still run. Evaluation is against the held-out middle frame with SSIM, PSNR, MSE, and FSIM.
+This repository is the working system for that problem. A six-channel temporal U-Net predicts a residual on top of the linear blend of the two endpoints. Linear blend is the default. The experimental U-Net is selectable when a trained checkpoint is available. Evaluation is against the held-out middle frame with SSIM, PSNR, MSE, and FSIM.
 
 ## 1. Problem
 
@@ -56,7 +85,7 @@ flowchart LR
 
 ### 2.3 Objective
 
-`dashboard/backend/train.py` minimises the L1 distance to the true middle frame. L1 is used instead of L2 because squared error rewards the blurry average that this task is trying to leave behind. The optimiser is Adam at \(10^{-4}\), batch size 1, for 200 epochs. Weights are written to `models/satellite_interpolator.pth`.
+`dashboard/backend/train.py` minimises the L1 distance to the true middle frame. L1 is used instead of L2 because squared error rewards the blurry average that this task is trying to leave behind. The optimiser is Adam at \(10^{-4}\), batch size 1, for 200 epochs. Custom weights are written to `models/satellite_interpolator.pth` and take priority over the bundled starter checkpoint.
 
 The curves below are that same L1 criterion, measured on a controlled 128×128 thermal patch whose middle frame is known. A scalar blend weight is descended for 40 epochs from a poor initialisation. This is not a reported GOES-19 test of the full U-Net. It is the shape of the objective the trainer minimises: a steep drop, then a plateau once the blend sits on the linear reference (dashed line, L1 = 5.89).
 
@@ -86,15 +115,15 @@ On this smooth patch the learned blend ties the linear baseline, as it should. T
 ### 2.4 What the server does at inference
 
 1. Decode the two endpoints as grayscale.
-2. If a checkpoint and PyTorch are both present, run the U-Net. A `resolution=7.5min` request runs two further passes.
-3. Otherwise form the OpenCV weighted blend and a light Gaussian, which keeps the API contract identical.
+2. When U-Net is selected, run the loaded checkpoint. A `resolution=7.5min` request runs two further passes.
+3. For linear interpolation, weight the original endpoints directly at the requested fraction.
 4. Build an absolute-difference heatmap against the linear blend, and a Sobel magnitude of the prediction.
-5. If `data/processed/frame_001.png` exists, score the prediction and the linear blend against it.
+5. If the run includes an observed midpoint, score the prediction and linear blend against it.
 6. Write `data/latest_prediction.h5`.
 
 ## 3. System
 
-The dashboard is a client of one Flask process. The satellite page is separate: it embeds the MOSDAC gallery through the Vite proxy and does not pass through the interpolator.
+The dashboard is a client of one Flask process. The Satellites page uses a read-only Flask adapter for the public ISRO MOSDAC gallery. It requests the current IST date, checks for updates every five minutes, and shows source timestamps for INSAT, radar, and forecast products. The LIVE tab links to the official map.
 
 ```mermaid
 flowchart TB
@@ -102,16 +131,16 @@ flowchart TB
     Upload["Data ingestion"]
     Compare["Comparison slider"]
     Metrics["SSIM, PSNR, MSE, FSIM"]
-    Config["Model configuration"]
-    Generate["Generate Frames"]
-    MOSDAC["Satellite page, MOSDAC gallery"]
+    Config["Default interpolation steps"]
+    Generate["Run GOES sample"]
+    MOSDAC["Satellites page"]
   end
   subgraph api [Flask on port 5000]
     Interp["POST /interpolate"]
     Gen["POST /generate"]
     Cfg["POST /config"]
     H5["GET /download_h5"]
-    Model["U-Net or OpenCV fallback"]
+    Model["Linear blend or U-Net"]
   end
   Upload --> Interp
   Generate --> Gen
@@ -126,14 +155,14 @@ flowchart TB
 
 | Route | Caller | Body | Returns |
 | --- | --- | --- | --- |
-| `POST /interpolate` | Upload | `frame1`, optional `frame3`, `resolution` of `15min` or `7.5min` | Predicted PNG, ground truth, heatmap, Sobel map, metrics, optional quarter-interval frames |
-| `POST /generate` | Generate Frames | Saved configuration | Same payload, using the frames in `data/processed` |
-| `GET` or `POST /config` | Model configuration | Temporal interval, precision, sharpening, buffer, TensorRT flag | The stored configuration |
-| `GET /download_h5` | Export | — | `interpolated_t1.h5` |
+| `POST /interpolate` | Upload | `frame1`, `frame3`, optional `midpoint`, `endpoint_gap` in minutes, and `resolution`, optional `method` | Predictions, analysis images, optional evaluation |
+| `POST /generate` | Run GOES sample | Optional `resolution`, `method`, and `source` (`sample`, `milton`, or `processed`) | Same payload |
+| `GET` or `POST /config` | Model configuration | Default interpolation steps | Saved steps and U-Net availability |
+| `GET /download_h5` | Export | ? | `interpolated_t1.h5` for the latest run |
 
-`frame3` may be omitted. The service then shifts the uploaded frame and treats that shift as the second endpoint, and it writes a middle reference so the metric cards have something to score. A prepared `frame_001.png` is left in place when both endpoints are uploaded.
+The API defaults to `method: "linear"`. Set `method: "u-net"` to request the experimental checkpoint. The API retains the mode values `15min` and `7.5min` for midpoint and quarter steps. Actual output timing depends on the input gap. Uploads leave the bundled and locally prepared frames intact.
 
-The Vite dev server proxies `/interpolate`, `/generate`, `/config`, and `/download_h5` to `127.0.0.1:5000`. `/gallery`, `/live`, `/api`, `/assets`, and `/common` stay pointed at MOSDAC so the satellite iframe can load.
+The Vite dev server proxies `/interpolate`, `/generate`, `/config`, `/download_h5`, and `/feeds/mosdac` to Flask at `127.0.0.1:5000`.
 
 ## 4. Evaluation
 
@@ -143,12 +172,10 @@ Four numbers are reported for the prediction and for the linear blend.
 | --- | --- | --- |
 | MSE | Mean squared error on 8-bit pixels | Lower |
 | PSNR | \(10 \log_{10}(255^2 / \mathrm{MSE})\) | Higher |
-| SSIM | Structural similarity. The service uses a luminance form that does not require SciPy. | Higher |
-| FSIM | Feature similarity. `piq.fsim` when PyTorch is loaded; otherwise the service reports the fixed fallback pair 0.9542 / 0.8871. | Higher |
+| SSIM | Structural similarity. Local Gaussian-window SSIM on 8-bit grayscale. | Higher |
+| FSIM | Feature similarity. `piq.fsim` when the trained PyTorch engine and PIQ are available. | Higher |
 
-The dashboard reads `metrics.ssim`, `metrics.psnr`, `metrics.mse`, and `metrics.fsim` into the four cards, and it draws the predicted frame against the reference in the slider. The confidence chart is anchored on the returned SSIM.
-
-These scores are only meaningful when the middle file is a real skipped observation. On INSAT, where that observation does not exist, the heatmap and the Sobel map are the inspection tools, and the numeric scores should not be read as a test-set result.
+The dashboard reports prediction and linear-blend scores against the observed midpoint. For input pairs without a middle observation, the visual diagnostics are available and the evaluation stays empty.
 
 ## 5. Repository
 
@@ -167,33 +194,35 @@ seamless-sat-frames/
 └── README.md
 ```
 
-Processed frames, checkpoints, and the latest HDF5 file stay out of git.
+The bundled GOES triplet and starter checkpoint are in `dashboard/backend/sample`. Raw training data, custom checkpoints, and HDF5 exports are kept locally.
 
-## 6. Reproduce
+## 6. Reproduce the GOES sample and train
 
-```bash
-git clone https://github.com/SomyadipJana/seamless-sat-frames.git
-cd seamless-sat-frames/dashboard/backend
-pip install -r requirements.txt
-python server.py
+From `dashboard/backend`, use the virtual environment created above:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install xarray netCDF4
+.\.venv\Scripts\python.exe download_sample.py
+.\.venv\Scripts\python.exe preprocess.py
 ```
 
-```bash
-cd dashboard/frontend
-npm install
-npm run dev
+These scripts download the first three GOES-18 ABI Channel 13 full-disk scans from the public NOAA archive prefix `noaa-goes18/ABI-L1b-RadF/2024/001/12/` and prepare the centre crops in `data/processed`. Raw Himawari Standard Data archives (`.DAT.bz2`) require an HSD reader and thermal calibration before they can be exported for upload.
+
+### Starter checkpoint provenance
+
+The upstream ISRO repository provides the model code and training loop. The bundled weights here were trained on NOAA GOES-18 ABI Channel 13 observations. Training used six scans from 11:00?11:50 UTC on each of 2 and 4 January 2024, with shared 64-pixel crops sampled from eight temporal triplets. The 1 January dashboard triplet was excluded from training. This small checkpoint demonstrates end-to-end inference. Its output is exploratory and its accuracy on INSAT or Himawari has yet to be established.
+
+Reproduce the starter from `dashboard/backend` after installing the preprocessing packages above:
+
+```powershell
+.\.venv\Scripts\python.exe download_sample.py --date 2024-01-02 --hour 11 --count 6 --output data/training/raw/002
+.\.venv\Scripts\python.exe download_sample.py --date 2024-01-04 --hour 11 --count 6 --output data/training/raw/004
+.\.venv\Scripts\python.exe preprocess.py --raw-dir data/training/raw/002 --output data/training/processed/002
+.\.venv\Scripts\python.exe preprocess.py --raw-dir data/training/raw/004 --output data/training/processed/004
+.\.venv\Scripts\python.exe train.py --data-dir data/training/processed/002 data/training/processed/004 --epochs 4 --steps 80 --patch-size 64 --seed 42 --cpu
 ```
 
-Training, once PyTorch is installed and `data/processed/` holds at least three ordered frames:
-
-```bash
-cd dashboard/backend
-python download_sample.py
-python preprocess.py
-python train.py
-```
-
-`server.py` loads `models/satellite_interpolator.pth` when that file is present. Without it, and on interpreters where PyTorch does not load, inference stays on the OpenCV path and the response shape does not change.
+Restart Flask after training to load the new checkpoint.
 
 ## License
 
