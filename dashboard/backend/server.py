@@ -1,71 +1,87 @@
-"""ISRO interpolation server, plus the routes this dashboard already renders.
-
-The model, the 15-minute / 7.5-minute pass, the heatmap, the Sobel map,
-and the SSIM / PSNR / MSE / FSIM scoring are the pipeline from the ISRO repo.
-The /api routes only reshape that result for the seamless-sat-frames screens.
-"""
-
 from flask import Flask, request, jsonify, send_file
 import os
 import json
-import traceback
-from datetime import datetime, timezone
 from flask_cors import CORS
+os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", str(64_000_000))
 import cv2
 import numpy as np
 import math
 import base64
 import h5py
+from tempfile import NamedTemporaryFile
+from mosdac import PRODUCTS, latest_gallery
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-USE_TORCH = False
-try:
-    import torch
-    try:
-        import torch_directml
-        device_name = torch_directml.device()
-    except ImportError:
-        device_name = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    from piq import fsim
-    from model import SatelliteInterpolatorUNet
-    USE_TORCH = True
-except ImportError:
-    print("[-] PyTorch could not be loaded due to Python 3.13 DLL issues. Falling back to OpenCV mock for demonstration.")
-
-def mse(image0, image1):
-    return np.mean((image0.astype(np.float64) - image1.astype(np.float64)) ** 2)
-
-def ssim(image0, image1):
-    # Pure numpy mock for SSIM to bypass Scipy DLL hangs
-    m = mse(image0, image1)
-    return max(0.0, min(1.0, 1.0 - (m / 1000.0)))
-
-
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 30 * 1024 * 1024
 CORS(app)
 
-if USE_TORCH:
-    print("[*] Booting AI Engine...")
-    device = device_name
-    model = SatelliteInterpolatorUNet().to(device)
+model = None
+checkpoint = next((path for path in ("models/satellite_interpolator.pth", "sample/goes18_unet.pth")
+                   if os.path.isfile(path)), None)
+if checkpoint:
     try:
-        model.load_state_dict(torch.load("models/satellite_interpolator.pth", map_location=device))
+        import torch
+        from model import SatelliteInterpolatorUNet
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if device.type == "cpu":
+            torch.set_num_threads(min(4, os.cpu_count() or 1))
+        network = SatelliteInterpolatorUNet().to(device)
+        network.load_state_dict(torch.load(checkpoint, map_location=device, weights_only=True))
+        model = network.eval()
     except Exception:
-        pass
-    model.eval()
-    print("[+] Model loaded and ready.")
+        app.logger.exception("Could not load checkpoint. Using the OpenCV baseline.")
+
+DEFAULT_METHOD = "linear"
+METHODS = ("linear", "u-net")
+MODEL_PROFILE = ("GOES-18 starter checkpoint" if checkpoint == "sample/goes18_unet.pth"
+                 else "Local checkpoint") if model is not None else None
+WORKING_SIZE = 768
+feature_similarity = None
+if model is not None:
+    try:
+        from piq import fsim as feature_similarity
+    except Exception:
+        app.logger.warning("PIQ unavailable. FSIM will be omitted.")
+
+
+def score(reference, image):
+    reference = reference.astype(np.float64)
+    image = image.astype(np.float64)
+    mse = float(np.mean((reference - image) ** 2))
+
+    def mean(field):
+        return cv2.GaussianBlur(field, (11, 11), 1.5)
+
+    a, b = mean(reference), mean(image)
+    c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+    variance = mean(reference ** 2) - a ** 2 + mean(image ** 2) - b ** 2
+    covariance = mean(reference * image) - a * b
+    similarity = ((2 * a * b + c1) * (2 * covariance + c2)) / ((a ** 2 + b ** 2 + c1) * (variance + c2))
+    fsim = None
+    if feature_similarity is not None:
+        try:
+            a, b = (torch.from_numpy(frame.copy())[None, None].float() / 255
+                    for frame in (image, reference))
+            value = feature_similarity(a, b, data_range=1.0, chromatic=False).item()
+            fsim = f"{value:.4f}" if math.isfinite(value) else None
+        except Exception:
+            app.logger.exception("Could not compute FSIM.")
+    return {
+        "mse": f"{mse:.3f}",
+        "psnr": f"{10 * math.log10(255 ** 2 / mse):.2f}" if mse else "Infinity",
+        "ssim": f"{similarity[5:-5, 5:-5].mean():.4f}",
+        "fsim": fsim,
+    }
+
 
 STATE_PATH = os.path.join("data", "dashboard_state.json")
-CACHE = {"result": None, "resolution": None}
-DEFAULT_CONFIG = {
-    "temporal_resolution": "15-min Interval",
-    "inference_precision": "FP16 (Recommended)",
-    "sharpening": 45,
-    "prefetch_buffer": "24 Frames (Standard)",
-    "tensorrt": True,
-    "engine": "SeamlessSAT v2.4 Core",
-}
+DEFAULT_RESOLUTION = "15-min Interval"
+RESOLUTIONS = ("15min", "7.5min")
+CONFIG_RESOLUTIONS = ("15-min Interval", "7.5-min Interval")
+CACHE = {"result": None}
 
 
 def img_to_base64(img):
@@ -73,418 +89,227 @@ def img_to_base64(img):
     return "data:image/png;base64," + base64.b64encode(buffer).decode("utf-8")
 
 
-def prepare_array(img):
-    """Same tensor layout as an uploaded frame in the ISRO server."""
-    if USE_TORCH:
-        img_3c = np.repeat(img[:, :, np.newaxis], 3, axis=2)
-        tensor = torch.from_numpy(img_3c).permute(2, 0, 1).float() / 255.0
-        return tensor.unsqueeze(0).to(device)
-    return img.astype(np.float32)
-
-
-def process_image(file_storage):
-    img_bytes = file_storage.read()
-    nparr = np.frombuffer(img_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        raise ValueError("Could not read image")
-    return prepare_array(img)
-
-
-def ensure_processed_frames():
-    """The ISRO dataset script expects frame_000.png, frame_001.png, frame_002.png."""
-    os.makedirs("data/processed", exist_ok=True)
-    paths = [f"data/processed/frame_{i:03d}.png" for i in range(3)]
-    if all(os.path.exists(path) for path in paths):
-        return paths
-    for i, path in enumerate(paths):
-        dummy_img = np.random.randint(0, 255, (256, 256), dtype=np.uint8)
-        cv2.imwrite(path, dummy_img)
-    return paths
-
-
 def isro_resolution(label):
-    text = label or ""
-    if "7.5" in text:
-        return "7.5min"
-    return "15min"
+    return "7.5min" if "7.5" in (label or "") else "15min"
 
 
-def run_interpolation(t0_data, t2_data, resolution):
-    if USE_TORCH:
-        with torch.no_grad():
-            f15_tensor = model(t0_data, t2_data)
-            if resolution == "7.5min":
-                f07_5_tensor = model(t0_data, f15_tensor)
-                f22_5_tensor = model(f15_tensor, t2_data)
+def unet_midpoint(start, end):
+    height, width = start.shape
+    padded = [cv2.copyMakeBorder(frame, 0, -height % 4, 0, -width % 4, cv2.BORDER_REPLICATE)
+              for frame in (start, end)]
+    tensors = [torch.from_numpy(frame)[None, None].float().repeat(1, 3, 1, 1).to(device) / 255
+               for frame in padded]
+    with torch.inference_mode():
+        image = model(*tensors)[0, :, :height, :width].mean(dim=0)
+    return np.rint(image.cpu().numpy() * 255).astype(np.uint8)
 
-            pred_tensor = f15_tensor
 
-        pred_img = (pred_tensor.squeeze().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-        pred_gray = cv2.cvtColor(pred_img, cv2.COLOR_BGR2GRAY)
+def run_interpolation(start, end, resolution, truth=None, source="Uploaded frames", cadence=None,
+                      method=DEFAULT_METHOD):
+    if method not in METHODS:
+        raise ValueError("Choose Linear blend or U-Net.")
+    if method == "u-net" and model is None:
+        raise ValueError("U-Net is unavailable. Load a compatible checkpoint or select Linear blend.")
+    profile = MODEL_PROFILE if method == "u-net" else None
+    for frame in (end, truth):
+        if frame is not None and frame.shape != start.shape:
+            raise ValueError("All frames must have the same dimensions and cover the same grid.")
+    if min(start.shape) < 11:
+        raise ValueError("Each frame must be at least 11 pixels wide and high.")
+    original_height, original_width = start.shape
+    scale = min(1, WORKING_SIZE / max(start.shape))
+    if scale < 1:
+        size = (max(11, round(original_width * scale)), max(11, round(original_height * scale)))
+        start, end = (cv2.resize(frame, size, interpolation=cv2.INTER_AREA) for frame in (start, end))
+        if truth is not None:
+            truth = cv2.resize(truth, size, interpolation=cv2.INTER_AREA)
 
-        t0_arr = t0_data.squeeze().cpu().permute(1, 2, 0).numpy()[:, :, 0] * 255.0
-        t2_arr = t2_data.squeeze().cpu().permute(1, 2, 0).numpy()[:, :, 0] * 255.0
-        mac_val = np.mean(np.abs(t0_arr - t2_arr))
+    endpoint_delta = cv2.absdiff(start, end)
+    identical = not np.any(endpoint_delta)
+    linear = cv2.addWeighted(start, 0.5, end, 0.5, 0)
+    prediction = linear if method == "linear" or identical else unet_midpoint(start, end)
+    delta = cv2.absdiff(prediction, linear)
+    heatmap = cv2.applyColorMap(cv2.normalize(delta, None, 0, 255, cv2.NORM_MINMAX), cv2.COLORMAP_JET)
+    dx = cv2.Sobel(prediction, cv2.CV_32F, 1, 0)
+    dy = cv2.Sobel(prediction, cv2.CV_32F, 0, 1)
+    edges = cv2.normalize(cv2.magnitude(dx, dy), None, 0, 255, cv2.NORM_MINMAX)
+    sobel = cv2.applyColorMap(edges.astype(np.uint8), cv2.COLORMAP_HOT)
 
-        linear_blend = (t0_arr + t2_arr) / 2.0
-        linear_gray = linear_blend.astype(np.uint8)
-    else:
-        t0_arr = t0_data
-        t2_arr = t2_data
-
-        linear_blend = (t0_arr + t2_arr) / 2.0
-        linear_gray = linear_blend.astype(np.uint8)
-
-        pred_gray = cv2.addWeighted(t0_arr.astype(np.uint8), 0.5, t2_arr.astype(np.uint8), 0.5, 0)
-        pred_gray = cv2.GaussianBlur(pred_gray, (3, 3), 0)
-
-        mac_val = np.mean(np.abs(t0_arr - t2_arr))
-
-        if resolution == "7.5min":
-            f07_img = cv2.addWeighted(t0_arr.astype(np.uint8), 0.75, t2_arr.astype(np.uint8), 0.25, 0)
-            f22_img = cv2.addWeighted(t0_arr.astype(np.uint8), 0.25, t2_arr.astype(np.uint8), 0.75, 0)
-
-    delta = cv2.absdiff(pred_gray, linear_gray)
-    delta_norm = cv2.normalize(delta, None, 0, 255, cv2.NORM_MINMAX)
-    heatmap_img = cv2.applyColorMap(delta_norm, cv2.COLORMAP_JET)
-
-    sobelx = cv2.Sobel(pred_gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobely = cv2.Sobel(pred_gray, cv2.CV_64F, 0, 1, ksize=3)
-    sobel_mag = np.sqrt(sobelx**2 + sobely**2)
-    sobel_norm = cv2.normalize(sobel_mag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    sobel_img = cv2.applyColorMap(sobel_norm, cv2.COLORMAP_HOT)
-
-    ai_mse, ai_psnr, ai_ssim, ai_fsim = 0, 0, 0, 0
-    base_mse, base_psnr, base_ssim, base_fsim = 0, 0, 0, 0
-
-    try:
-        gt_img = cv2.imread("data/processed/frame_001.png", cv2.IMREAD_GRAYSCALE)
-        if gt_img is not None:
-            if gt_img.shape != pred_gray.shape:
-                gt_img = cv2.resize(gt_img, (pred_gray.shape[1], pred_gray.shape[0]))
-            ai_mse = mse(gt_img, pred_gray)
-            ai_psnr = 10 * math.log10((255 ** 2) / ai_mse) if ai_mse > 0 else float("inf")
-            ai_ssim = ssim(gt_img, pred_gray)
-
-            base_mse = mse(gt_img, linear_gray)
-            base_psnr = 10 * math.log10((255 ** 2) / base_mse) if base_mse > 0 else float("inf")
-            base_ssim = ssim(gt_img, linear_gray)
-
-            if USE_TORCH:
-                gt_tensor = torch.from_numpy(gt_img).unsqueeze(0).unsqueeze(0).float() / 255.0
-                pred_gray_tensor = torch.from_numpy(pred_gray).unsqueeze(0).unsqueeze(0).float() / 255.0
-                ai_fsim = fsim(pred_gray_tensor, gt_tensor, data_range=1.0, chromatic=False).item()
-                linear_gray_tensor = torch.from_numpy(linear_gray).unsqueeze(0).unsqueeze(0).float() / 255.0
-                base_fsim = fsim(linear_gray_tensor, gt_tensor, data_range=1.0, chromatic=False).item()
-            else:
-                ai_fsim = 0.9542
-                base_fsim = 0.8871
-
-            print(f"AI Metrics -> MSE: {ai_mse:.2f}, PSNR: {ai_psnr:.2f}, SSIM: {ai_ssim:.4f}, FSIM: {ai_fsim:.4f}")
-    except Exception as exc:
-        print("Could not calculate metrics:", exc, flush=True)
-        traceback.print_exc()
-
-    h5_path = os.path.join("data", "latest_prediction.h5")
-    os.makedirs("data", exist_ok=True)
-    with h5py.File(h5_path, "w") as handle:
-        if USE_TORCH:
-            if resolution == "7.5min":
-                handle.create_dataset("f07_5", data=f07_5_tensor.squeeze().cpu().numpy())
-                handle.create_dataset("f15", data=f15_tensor.squeeze().cpu().numpy())
-                handle.create_dataset("f22_5", data=f22_5_tensor.squeeze().cpu().numpy())
-            else:
-                handle.create_dataset("interpolated_frame", data=pred_tensor.squeeze().cpu().numpy())
-        else:
-            handle.create_dataset("interpolated_frame", data=pred_gray)
-
-    extra_frames = []
+    extras = []
     if resolution == "7.5min":
-        if USE_TORCH:
-            f07_img = (f07_5_tensor.squeeze().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-            f07_gray = cv2.cvtColor(f07_img, cv2.COLOR_BGR2GRAY)
-            f22_img = (f22_5_tensor.squeeze().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-            f22_gray = cv2.cvtColor(f22_img, cv2.COLOR_BGR2GRAY)
+        if method == "linear" or identical:
+            extras = [cv2.addWeighted(start, 1 - fraction, end, fraction, 0)
+                      for fraction in (0.25, 0.75)]
         else:
-            f07_gray = f07_img
-            f22_gray = f22_img
-        extra_frames = [img_to_base64(f07_gray), img_to_base64(f22_gray)]
+            extras = [unet_midpoint(start, prediction), unet_midpoint(prediction, end)]
+    intervals = 4 if extras else 2
+    scores = None
+    observed_error = None
+    if truth is not None:
+        observed_error = cv2.applyColorMap(cv2.absdiff(prediction, truth), cv2.COLORMAP_INFERNO)
+        baseline_scores = score(truth, linear)
+        scores = dict(baseline_scores) if prediction is linear else score(truth, prediction)
+        scores["baseline"] = baseline_scores
+
+    os.makedirs("data", exist_ok=True)
+    with NamedTemporaryFile(dir="data", suffix=".h5", delete=False) as temporary:
+        export_path = temporary.name
+    try:
+        with h5py.File(export_path, "w") as handle:
+            handle.attrs["engine"] = method
+            handle.attrs["source"] = source
+            handle.attrs["input_width"] = original_width
+            handle.attrs["input_height"] = original_height
+            if profile:
+                handle.attrs["model_profile"] = profile
+            handle.attrs["identical_endpoints"] = identical
+            if cadence:
+                handle.attrs["endpoint_gap_minutes"] = cadence
+            frames = {"interpolated_frame": (prediction, 0.5)}
+            if extras:
+                frames.update(first_quarter=(extras[0], 0.25), third_quarter=(extras[1], 0.75))
+            for name, (frame, fraction) in frames.items():
+                dataset = handle.create_dataset(name, data=frame)
+                dataset.attrs["endpoint_fraction"] = fraction
+                if cadence is not None:
+                    dataset.attrs["offset_minutes"] = cadence * fraction
+        os.replace(export_path, "data/latest_prediction.h5")
+    finally:
+        if os.path.exists(export_path):
+            os.unlink(export_path)
 
     return {
-        "base_image": img_to_base64(pred_gray),
-        "differential_image": img_to_base64(heatmap_img),
-        "sobel_image": img_to_base64(sobel_img),
-        "extra_frames": extra_frames,
-        "metrics": {
-            "mse": f"{ai_mse:.3f}",
-            "psnr": f"{ai_psnr:.2f}",
-            "ssim": f"{ai_ssim:.4f}",
-            "fsim": f"{ai_fsim:.4f}",
-            "mac": f"{mac_val:.2f}",
-            "baseline": {
-                "mse": f"{base_mse:.3f}",
-                "psnr": f"{base_psnr:.2f}",
-                "ssim": f"{base_ssim:.4f}",
-                "fsim": f"{base_fsim:.4f}",
-            },
+        "base_image": img_to_base64(prediction),
+        "start_image": img_to_base64(start),
+        "end_image": img_to_base64(end),
+        "ground_truth": img_to_base64(truth) if truth is not None else None,
+        "baseline_image": img_to_base64(linear),
+        "differential_image": img_to_base64(heatmap),
+        "sobel_image": img_to_base64(sobel),
+        "observed_error_image": img_to_base64(observed_error) if observed_error is not None else None,
+        "mean_endpoint_change": float(endpoint_delta.mean()),
+        "endpoint_change_image": img_to_base64(cv2.applyColorMap(endpoint_delta, cv2.COLORMAP_INFERNO)),
+        "extra_frames": [img_to_base64(frame) for frame in extras],
+        "metrics": scores,
+        "engine": method,
+        "source": source,
+        "model_profile": profile,
+        "identical_endpoints": identical,
+        "frame_size": {
+            "input_width": original_width, "input_height": original_height,
+            "width": start.shape[1], "height": start.shape[0],
         },
+        "interval_minutes": cadence / intervals if cadence else None,
     }
 
 
-def load_state():
-    if not os.path.exists(STATE_PATH):
-        return {
-            "config": dict(DEFAULT_CONFIG),
-            "history": [],
-            "last_sync": None,
-            "result": None,
-            "resolution": "15min",
-        }
-    with open(STATE_PATH, "r", encoding="utf-8") as handle:
-        stored = json.load(handle)
-    stored["config"] = {**DEFAULT_CONFIG, **stored.get("config", {})}
-    stored["result"] = CACHE["result"]
-    if CACHE["resolution"]:
-        stored["resolution"] = CACHE["resolution"]
-    return stored
-
-
-def save_state(state):
-    os.makedirs("data", exist_ok=True)
-    stored = {
-        "config": state["config"],
-        "history": state.get("history", [])[-24:],
-        "last_sync": state.get("last_sync"),
-        "resolution": state.get("resolution", "15min"),
+def load_config():
+    try:
+        with open(STATE_PATH, encoding="utf-8") as handle:
+            resolution = json.load(handle).get("config", {}).get("temporal_resolution")
+    except (FileNotFoundError, json.JSONDecodeError):
+        resolution = None
+    return {
+        "temporal_resolution": resolution if resolution in CONFIG_RESOLUTIONS else DEFAULT_RESOLUTION,
+        "engine": DEFAULT_METHOD,
+        "u_net_available": model is not None,
     }
-    with open(STATE_PATH, "w", encoding="utf-8") as handle:
-        json.dump(stored, handle, indent=2)
-    if "result" in state:
-        stored_result = state
-    return stored
 
 
-def file_data_url(path):
-    image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-    if image is None:
-        return None
-    return img_to_base64(image)
-
-
-def percent_change(current, baseline):
-    current = float(current)
-    baseline = float(baseline)
-    if abs(baseline) < 1e-9:
-        return 0.0
-    return round((current - baseline) / abs(baseline) * 100.0, 1)
-
-
-def dashboard_metrics(result):
-    scores = result["metrics"]
-    baseline = scores["baseline"]
-    rows = [
-        ("ssim", "SSIM (Structure)", scores["ssim"], "Idx"),
-        ("psnr", "PSNR (Noise)", scores["psnr"], "dB"),
-        ("mse", "MSE (Error)", scores["mse"], ""),
-        ("fsim", "FSIM (Features)", scores["fsim"], "Idx"),
-    ]
-    return [
-        {
-            "key": key,
-            "title": title,
-            "value": value,
-            "unit": unit,
-            "trend": percent_change(value, baseline[key]),
-        }
-        for key, title, value, unit in rows
-    ]
-
-
-def remember(result, resolution):
-    state = load_state()
-    state["result"] = result
-    state["resolution"] = resolution
-    state["last_sync"] = datetime.now(timezone.utc).isoformat()
-    scores = result["metrics"]
-    state.setdefault("history", [])
-    state["history"].append(
-        {
-            "time": datetime.now().strftime("%H:%M"),
-            "ssim": float(scores["ssim"]),
-            "psnr": float(scores["psnr"]),
-            "mse": float(scores["mse"]),
-            "fsim": float(scores["fsim"]),
-        }
-    )
-    save_state(state)
+def remember(result):
     CACHE["result"] = result
-    CACHE["resolution"] = resolution
-    state["result"] = result
-    return state
+    return result
 
 
-def generate_from_processed(resolution):
-    ensure_processed_frames()
-    frame0 = cv2.imread("data/processed/frame_000.png", cv2.IMREAD_GRAYSCALE)
-    frame2 = cv2.imread("data/processed/frame_002.png", cv2.IMREAD_GRAYSCALE)
-    result = run_interpolation(prepare_array(frame0), prepare_array(frame2), resolution)
-    return remember(result, resolution)
+SAMPLE_SOURCES = {
+    "sample": ("sample", "GOES-18 ABI Channel 13, 1 Jan 2024", 20),
+    "milton": ("sample/milton", "Hurricane Milton, GOES-16 Channel 13, 9 Oct 2024", 30),
+    "processed": ("data/processed", "Local prepared frames", None),
+}
 
 
-def comparison_payload(state):
-    result = state.get("result")
-    resolution = state.get("resolution", "15min")
-    if result is None:
-        state = generate_from_processed(isro_resolution(state["config"]["temporal_resolution"]))
-        result = state["result"]
-        resolution = state["resolution"]
-
-    start = file_data_url("data/processed/frame_000.png")
-    truth = file_data_url("data/processed/frame_001.png")
-    end = file_data_url("data/processed/frame_002.png")
-    predicted = result["base_image"]
-
-    if resolution == "7.5min" and len(result.get("extra_frames") or []) == 2:
-        frames = [
-            {"label": "04:00 UTC", "role": "observed", "image": start, "ground_truth": start},
-            {"label": "04:07 UTC", "role": "interpolated", "image": result["extra_frames"][0], "ground_truth": truth},
-            {"label": "04:15 UTC", "role": "interpolated", "image": predicted, "ground_truth": truth},
-            {"label": "04:22 UTC", "role": "interpolated", "image": result["extra_frames"][1], "ground_truth": truth},
-            {"label": "04:30 UTC", "role": "observed", "image": end, "ground_truth": end},
-        ]
-        interval = "7.5-min Interval"
-        active = 2
-    else:
-        frames = [
-            {"label": "04:00 UTC", "role": "observed", "image": start, "ground_truth": start},
-            {"label": "04:15 UTC", "role": "interpolated", "image": predicted, "ground_truth": truth},
-            {"label": "04:30 UTC", "role": "observed", "image": end, "ground_truth": end},
-        ]
-        interval = "15-min Interval"
-        active = 1
-
-    return {"interval": interval, "active_index": active, "timestamp": frames[active]["label"], "frames": frames}
-
-
-def sync_label(iso_stamp):
-    if not iso_stamp:
-        return "2 minutes ago"
-    stamp = datetime.fromisoformat(iso_stamp)
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
-    minutes = max(0, int((datetime.now(timezone.utc) - stamp).total_seconds()) // 60)
-    if minutes < 1:
-        return "just now"
-    if minutes == 1:
-        return "1 minute ago"
-    return f"{minutes} minutes ago"
+def generate_from_processed(resolution, source, method=DEFAULT_METHOD):
+    directory, label, gap = SAMPLE_SOURCES[source]
+    frames = [cv2.imread(f"{directory}/frame_{index:03d}.png", cv2.IMREAD_GRAYSCALE)
+              for index in range(3)]
+    if any(frame is None for frame in frames):
+        raise ValueError("This source needs three prepared frames.")
+    return remember(run_interpolation(frames[0], frames[2], resolution, frames[1], label, gap, method))
 
 
 def read_upload(file_storage):
     raw = np.frombuffer(file_storage.read(), np.uint8)
     image = cv2.imdecode(raw, cv2.IMREAD_GRAYSCALE)
     if image is None:
-        raise ValueError("Could not read image")
+        raise ValueError("Could not decode the image. Use a valid PNG or JPEG frame.")
     return image
-
-
-def store_pair(frame0, frame2, synthesize_truth):
-    os.makedirs("data/processed", exist_ok=True)
-    cv2.imwrite("data/processed/frame_000.png", frame0)
-    cv2.imwrite("data/processed/frame_002.png", frame2)
-    if synthesize_truth or not os.path.exists("data/processed/frame_001.png"):
-        middle = cv2.addWeighted(frame0, 0.5, frame2, 0.5, 0)
-        cv2.imwrite("data/processed/frame_001.png", middle)
 
 
 @app.route("/interpolate", methods=["POST"])
 def interpolate():
-    if "frame1" not in request.files:
-        return {"error": "Missing frames"}, 400
     try:
-        frame0 = read_upload(request.files["frame1"])
-        if "frame3" in request.files and request.files["frame3"].filename:
-            frame2 = read_upload(request.files["frame3"])
-            synthesize_truth = False
-        else:
-            frame2 = np.roll(frame0, 16, axis=1)
-            synthesize_truth = True
-        store_pair(frame0, frame2, synthesize_truth)
-        t0_data = prepare_array(frame0)
-        t2_data = prepare_array(frame2)
-    except ValueError as exc:
+        if not all(key in request.files and request.files[key].filename for key in ("frame1", "frame3")):
+            raise ValueError("Select both the first and last satellite frame.")
+        start, end = (read_upload(request.files[key]) for key in ("frame1", "frame3"))
+        middle = request.files.get("midpoint")
+        truth = read_upload(middle) if middle and middle.filename else None
+        resolution = request.form.get("resolution", "15min")
+        if resolution not in RESOLUTIONS:
+            raise ValueError("Choose midpoint or quarter steps.")
+        cadence = float(request.form.get("endpoint_gap") or 30)
+        if not math.isfinite(cadence) or cadence <= 0:
+            raise ValueError("Enter a positive time gap in minutes.")
+        method = request.form.get("method", DEFAULT_METHOD)
+        return jsonify(remember(run_interpolation(start, end, resolution, truth, cadence=cadence, method=method)))
+    except (ValueError, cv2.error) as exc:
         return {"error": str(exc)}, 400
-    resolution = request.form.get("resolution", "15min")
-    result = run_interpolation(t0_data, t2_data, resolution)
-    truth = cv2.imread("data/processed/frame_001.png", cv2.IMREAD_GRAYSCALE)
-    if truth is not None:
-        result["ground_truth"] = img_to_base64(truth)
-    remember(result, resolution)
-    return jsonify(result)
 
 
 @app.route("/download_h5", methods=["GET"])
 def download_h5():
     h5_path = os.path.join("data", "latest_prediction.h5")
     if os.path.exists(h5_path):
-        return send_file(h5_path, as_attachment=True, download_name="interpolated_t1.h5")
+        return send_file(os.path.abspath(h5_path), as_attachment=True, download_name="interpolated_t1.h5")
     return {"error": "No data available"}, 404
+
+
+@app.get("/feeds/mosdac/<product>")
+def mosdac_feed(product):
+    if product not in PRODUCTS:
+        return {"error": "Unknown MOSDAC product."}, 404
+    try:
+        return jsonify(latest_gallery(product))
+    except (OSError, ValueError):
+        app.logger.warning("Could not retrieve MOSDAC %s feed", product, exc_info=True)
+        return {"error": "Could not reach the MOSDAC feed. Try Refresh or open the official source."}, 502
 
 
 @app.get("/api/health")
 def health():
-    return jsonify({"status": "ok", "engine": "torch" if USE_TORCH else "opencv"})
+    return jsonify({"status": "ok", "engine": DEFAULT_METHOD, "u_net_available": model is not None})
 
 
 @app.get("/api/metrics")
 def metrics():
-    state = load_state()
-    if state.get("result") is None and not state.get("history"):
-        return jsonify({
-            "satellite": "GOES-19",
-            "metrics": [
-                {"key": "ssim", "title": "SSIM (Structure)", "value": "0.912", "unit": "Idx", "trend": 4.2},
-                {"key": "psnr", "title": "PSNR (Noise)", "value": "34.8", "unit": "dB", "trend": 2.1},
-                {"key": "mse", "title": "MSE (Error)", "value": "0.0034", "unit": "", "trend": -12.5},
-                {"key": "fsim", "title": "FSIM (Features)", "value": "0.885", "unit": "Idx", "trend": 3.8},
-            ],
-        })
-    if state.get("result") is None:
-        state = generate_from_processed(isro_resolution(state["config"]["temporal_resolution"]))
-    return jsonify({"satellite": "GOES-19", "metrics": dashboard_metrics(state["result"])})
+    result = CACHE["result"] or {}
+    return jsonify({"satellite": result.get("source"), "metrics": result.get("metrics")})
 
 
 @app.get("/api/metrics/history")
 def metrics_history():
-    state = load_state()
-    return jsonify({"window": "Last 24h", "points": state.get("history", [])})
+    return jsonify({"points": []})
 
 
 @app.get("/api/satellite")
 def satellite():
-    state = load_state()
-    ensure_processed_frames()
-    feed = None
-    if state.get("result"):
-        feed = state["result"]["base_image"]
-    else:
-        feed = file_data_url("data/processed/frame_000.png")
-    return jsonify({
-        "name": "GOES-19",
-        "instrument": "GOES-19 ABI",
-        "status": "Online",
-        "last_sync": sync_label(state.get("last_sync")),
-        "ingestion_gb_per_hour": 4.2,
-        "ingestion_trend": 12,
-        "feed": feed,
-    })
+    result = CACHE["result"] or {}
+    return jsonify({"name": result.get("source"), "feed": result.get("start_image")})
 
 
 @app.get("/api/config")
 @app.get("/config")
 def get_config():
-    return jsonify(load_state()["config"])
+    return jsonify(load_config())
 
 
 @app.put("/api/config")
@@ -493,47 +318,35 @@ def get_config():
 @app.post("/config")
 def put_config():
     payload = request.get_json(silent=True) or {}
-    state = load_state()
-    for key in DEFAULT_CONFIG:
-        if key in payload and key != "engine":
-            state["config"][key] = payload[key]
-    save_state(state)
-    return jsonify(state["config"])
+    resolution = payload.get("temporal_resolution")
+    if resolution not in CONFIG_RESOLUTIONS:
+        return {"error": "Choose midpoint or quarter steps."}, 400
+    config = {"temporal_resolution": resolution, "engine": DEFAULT_METHOD, "u_net_available": model is not None}
+    os.makedirs("data", exist_ok=True)
+    with open(STATE_PATH, "w", encoding="utf-8") as handle:
+        json.dump({"config": config}, handle)
+    return jsonify(config)
 
 
 @app.get("/api/comparison")
 def comparison():
-    state = load_state()
-    requested = request.args.get("interval")
-    if requested:
-        state["config"]["temporal_resolution"] = requested
-        resolution = isro_resolution(requested)
-        if state.get("resolution") != resolution or state.get("result") is None:
-            state = generate_from_processed(resolution)
-        else:
-            save_state(state)
-    elif state.get("result") is None:
-        state = generate_from_processed(isro_resolution(state["config"]["temporal_resolution"]))
-    return jsonify(comparison_payload(state))
+    return jsonify(CACHE["result"] or {})
 
 
+@app.post("/generate")
 @app.post("/api/generate")
 def generate():
-    state = load_state()
     payload = request.get_json(silent=True) or {}
-    if payload:
-        for key in DEFAULT_CONFIG:
-            if key in payload and key != "engine":
-                state["config"][key] = payload[key]
-        save_state(state)
-    resolution = isro_resolution(state["config"]["temporal_resolution"])
-    state = generate_from_processed(resolution)
-    payload = dict(state["result"])
-    payload["status"] = "success"
-    truth = cv2.imread("data/processed/frame_001.png", cv2.IMREAD_GRAYSCALE)
-    if truth is not None:
-        payload["ground_truth"] = img_to_base64(truth)
-    return jsonify(payload)
+    resolution = payload.get("resolution") or isro_resolution(load_config()["temporal_resolution"])
+    if resolution not in RESOLUTIONS:
+        return {"error": "Choose midpoint or quarter steps."}, 400
+    source = payload.get("source", "sample")
+    if not isinstance(source, str) or source not in SAMPLE_SOURCES:
+        return {"error": "Unknown sample source."}, 400
+    try:
+        return jsonify(generate_from_processed(resolution, source, payload.get("method", DEFAULT_METHOD)))
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
 
 
 if __name__ == "__main__":

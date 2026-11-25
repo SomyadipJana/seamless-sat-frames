@@ -3,3 +3,5 @@ flask-cors>=4.0
 numpy>=1.26
 opencv-python-headless>=4.9
 h5py>=3.10
+torch>=2.6
+piq>=0.8

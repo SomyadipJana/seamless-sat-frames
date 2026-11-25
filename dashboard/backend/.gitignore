@@ -3,3 +3,4 @@ __pycache__/
 data/
 models/*.pth
 _isro_*.py
+.venv/

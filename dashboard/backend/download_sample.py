@@ -1,33 +1,44 @@
-import s3fs
-import os
+﻿"""Download one chronological sequence from the public NOAA GOES-18 archive."""
 
-print("Connecting to NOAA AWS S3...")
-fs = s3fs.S3FileSystem(anon=True)
+import argparse
+from pathlib import Path
+import shutil
+from urllib.parse import urlencode
+from urllib.request import urlopen
+from xml.etree import ElementTree
 
-# Pointing to Jan 1, 2024, 12:00 UTC
-bucket_path = 'noaa-goes18/ABI-L1b-RadF/2024/001/12/'
-print(f"Searching for files in: {bucket_path}")
 
-files = fs.ls(bucket_path)
-# Filter for Channel 13 (Thermal Infrared) and sort chronologically
-c13_files = sorted([f for f in files if "M6C13" in f])
+ARCHIVE = "https://noaa-goes18.s3.amazonaws.com/"
 
-# Grab exactly 3 consecutive frames
-target_files = c13_files[:3]
 
-if len(target_files) < 3:
-    print("Error: Could not find 3 consecutive files.")
-else:
-    os.makedirs("data/raw", exist_ok=True)
-    
-    for i, file_path in enumerate(target_files):
-        filename = os.path.basename(file_path)
-        output_path = f"data/raw/{filename}"
-        
-        if not os.path.exists(output_path):
-            print(f"Downloading Frame {i+1}/3: {filename}...")
-            fs.get(file_path, output_path)
-        else:
-            print(f"Frame {i+1}/3 already exists: {filename}")
-            
-    print("\n[+] Successfully downloaded 3 consecutive satellite frames!")
+def download_sequence(day, hour, count, output):
+    prefix = f"ABI-L1b-RadF/{day.year}/{day.timetuple().tm_yday:03d}/{hour:02d}/"
+    query = urlencode({"list-type": 2, "prefix": prefix})
+    with urlopen(ARCHIVE + "?" + query, timeout=25) as remote:
+        listing = ElementTree.parse(remote)
+    keys = sorted(entry.text for entry in listing.findall(".//{*}Key")
+                  if entry.text and "M6C13" in entry.text)
+    if len(keys) < count:
+        raise SystemExit(f"Expected {count} Channel 13 scans under {prefix}; found {len(keys)}.")
+    output.mkdir(parents=True, exist_ok=True)
+    for key in keys[:count]:
+        target = output / key.rsplit("/", 1)[1]
+        if target.exists():
+            continue
+        partial = target.with_suffix(".partial")
+        print(f"Downloading {target.name}", flush=True)
+        with urlopen(ARCHIVE + key, timeout=45) as remote, partial.open("wb") as local:
+            shutil.copyfileobj(remote, local)
+        partial.replace(target)
+
+
+if __name__ == "__main__":
+    from datetime import date
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--date", type=date.fromisoformat, default=date(2024, 1, 1))
+    parser.add_argument("--hour", type=int, choices=range(24), default=12)
+    parser.add_argument("--count", type=int, choices=range(3, 7), default=3)
+    parser.add_argument("--output", type=Path, default=Path("data/raw"))
+    args = parser.parse_args()
+    download_sequence(args.date, args.hour, args.count, args.output)
