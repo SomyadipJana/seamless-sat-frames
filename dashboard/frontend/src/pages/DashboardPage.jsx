@@ -1,55 +1,91 @@
 import React, { useEffect, useState } from 'react';
+import { Aperture, ScanLine } from 'lucide-react';
+import './satellite-workspace.css';
 import ComparisonViewer from '../components/ComparisonViewer';
 import MetricsPanel from '../components/MetricsPanel';
 import UploadSection from '../components/UploadSection';
 
-const DashboardPage = () => {
-  const [uploadData, setUploadData] = useState(null);
+export default function DashboardPage() {
+  const [source, setSource] = useState('milton');
+  const [method, setMethod] = useState('linear');
+  const [unetAvailable, setUnetAvailable] = useState(null);
+  const [result, setResult] = useState(null);
+  const [resolution, setResolution] = useState('15min');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const onFrames = (event) => {
-      const data = event.detail;
-      if (!data?.metrics) return;
-      setUploadData((current) => ({
-        ...current,
-        framesGenerated: 1 + (data.extra_frames?.length || 0),
-        processingTime: current?.processingTime || 'live',
-        metrics: data.metrics,
-        base_image: data.base_image,
-        ground_truth: data.ground_truth,
-      }));
-    };
-    window.addEventListener('frames-updated', onFrames);
-    return () => window.removeEventListener('frames-updated', onFrames);
+    const controller = new AbortController();
+    fetch('/config', { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : {})
+      .then((config) => {
+        setResolution((current) => current === '15min' && config.temporal_resolution?.includes('7.5') ? '7.5min' : current);
+        setUnetAvailable(config.u_net_available ?? null);
+      })
+      .catch(() => {});
+    return () => controller.abort();
   }, []);
 
-  return (
-    <div className="dashboard-grid">
-      {/* Left Side: Viewer & Upload */}
-      <div className="dashboard-viewer-section flex flex-col gap-6">
-        <UploadSection onUploadComplete={(data) => setUploadData(data)} />
-        
-        {/* Render ComparisonViewer regardless or only after upload based on preference. 
-            For now, showing it below UploadSection. */}
-        <div className={`transition-all duration-500 ${uploadData ? 'opacity-100' : 'opacity-80'}`}>
-          <div className="flex items-center justify-between mb-4 px-1">
-            <h3 className="text-lg font-semibold text-[var(--app-ink)]">Visual Analysis</h3>
-            {uploadData && (
-              <span className="text-xs font-medium text-blue-400 bg-blue-500/10 px-2 py-1 rounded-md">
-                Generated {uploadData.framesGenerated} frames in {uploadData.processingTime}
-              </span>
-            )}
-          </div>
-          <ComparisonViewer uploadData={uploadData} />
-        </div>
-      </div>
+  async function run(files) {
+    setBusy(true);
+    setError('');
+    setResult(null);
+    try {
+      const response = await fetch(files ? '/interpolate' : '/generate', {
+        method: 'POST',
+        headers: files ? undefined : { 'Content-Type': 'application/json' },
+        body: files || JSON.stringify({ resolution, source, method }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.base_image) {
+        throw new Error(data.error || (response.status === 413
+          ? 'The combined uploads must be under 30 MB.'
+          : 'Interpolation failed. Check that the Flask backend is running on port 5000.'));
+      }
+      setResult(data);
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
-      {/* Right Side: Metrics */}
-      <div className="dashboard-metrics-section">
-        <MetricsPanel uploadData={uploadData} />
+  return (
+    <div className="sat-workspace">
+      <header className="sat-page-header">
+        <div>
+          <h1>Satellite interpolation</h1>
+          <p>Generate and evaluate intermediate thermal infrared observations.</p>
+        </div>
+      </header>
+      <div className="sat-grid">
+        <UploadSection onRun={run} busy={busy} error={error} resolution={resolution} setResolution={setResolution} source={source} setSource={setSource} method={method} setMethod={setMethod} unetAvailable={unetAvailable} />
+        <div className="sat-main">
+          {result ? <ComparisonViewer result={result} /> : (
+            <section className="sat-panel sat-preview">
+              <div className="sat-panel-header">
+                <div className="sat-heading-icon"><ScanLine size={19} /></div>
+                <div><h2>Observation viewer</h2><p>{busy ? 'Generating sequence' : 'Thermal infrared imagery'}</p></div>
+              </div>
+              {source !== 'upload' ? (
+                <figure>
+                  <div className="sat-preview-image">
+                    <img src={source === 'milton' ? '/milton-preview.webp' : '/goes-preview.webp'}
+                         alt={source === 'milton' ? 'Thermal infrared image of Hurricane Milton' : 'Thermal infrared image of cloud bands'} />
+                  </div>
+                  <figcaption><strong>{source === 'milton' ? 'Hurricane Milton preview' : 'GOES-18 sample preview'}</strong><span>{source === 'milton' ? 'Observed midpoint at 18:16 UTC' : 'Observed midpoint at 12:10 UTC'}</span></figcaption>
+                </figure>
+              ) : (
+                <div className="sat-preview-placeholder">
+                  <Aperture size={38} aria-hidden="true" />
+                  <p>Upload both endpoint observations to generate a sequence.</p>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+        <MetricsPanel result={result} />
       </div>
     </div>
   );
-};
-
-export default DashboardPage;
+}

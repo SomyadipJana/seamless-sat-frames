@@ -1,48 +1,18 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Globe, Settings, Satellite, RefreshCw, Bell, Check } from 'lucide-react';
+import { LayoutDashboard, Globe, Settings, Satellite } from 'lucide-react';
 
 const DashboardLayout = () => {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generateSuccess, setGenerateSuccess] = useState(false);
-
-  const handleGenerate = async () => {
-    if (isGenerating || generateSuccess) return;
-
-    setIsGenerating(true);
-    try {
-      const response = await fetch('/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      if (!response.ok) throw new Error('Generate failed');
-      const data = await response.json();
-      window.dispatchEvent(new CustomEvent('frames-updated', { detail: data }));
-      setGenerateSuccess(true);
-      setTimeout(() => setGenerateSuccess(false), 3000);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   return (
     <div className="dashboard-container font-sans">
       {/* App Sidebar */}
       <aside className="dashboard-sidebar">
-        <div className="sidebar-header">
-          <div className="sidebar-logo-img" style={{ display: 'flex', alignItems: 'center' }}>
-            <img 
-              src="/logo.png" 
-              alt="" 
-              style={{ height: '44px', width: 'auto', filter: 'brightness(0)', objectFit: 'contain' }} 
-            />
-          </div>
-        </div>
-        
-        <nav className="sidebar-nav">
+        <NavLink to="/" className="sat-brand" aria-label="Seamless SAT Frames home">
+          <span className="sat-brand-icon"><Satellite size={21} /></span>
+          <span>Seamless SAT<span className="sat-brand-caption">Frame interpolation</span></span>
+        </NavLink>
+
+        <nav className="sidebar-nav" aria-label="Main navigation">
           <NavLink 
             to="/" 
             className={({ isActive }) => `sidebar-nav-item ${isActive ? 'active' : ''}`}
@@ -67,49 +37,14 @@ const DashboardLayout = () => {
           </NavLink>
         </nav>
 
-        <div className="sidebar-footer">
-          <button 
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-white font-semibold text-sm transition-all ${
-              generateSuccess ? 'bg-green-600' : 'bg-[var(--app-ink)] hover:opacity-90'
-            }`}
-            style={generateSuccess ? { backgroundColor: '#10b981' } : {}}
-          >
-            {isGenerating ? (
-              <>
-                <RefreshCw size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-                Generating...
-              </>
-            ) : generateSuccess ? (
-              <>
-                <Check size={14} />
-                Success!
-              </>
-            ) : (
-              <>
-                <RefreshCw size={14} />
-                Generate Frames
-              </>
-            )}
-          </button>
-        </div>
       </aside>
 
       {/* Main Content Area */}
       <main className="dashboard-main relative z-10">
         {/* Top Header */}
         <header className="dashboard-header">
-          <h1 className="header-title">INSAT Interpolation Dashboard</h1>
+          <span className="header-title">Satellite workspace</span>
           
-          <div className="header-actions">
-            <button className="header-icon-btn">
-              <Bell size={18} />
-            </button>
-            <div className="header-avatar">
-              SD
-            </div>
-          </div>
         </header>
 
         {/* Scrollable Content */}

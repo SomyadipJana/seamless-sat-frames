@@ -1,284 +1,83 @@
-import React, { useState, useRef } from 'react';
-import { UploadCloud, X, CheckCircle, Loader2, Activity } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { LiquidCard } from './ui/LiquidCard';
-import { Area, AreaChart, XAxis, YAxis, CartesianGrid } from "recharts";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./ui/chart";
+import React, { useState } from 'react';
+import { CloudRain, Database, ImagePlus, Layers, Play, Satellite, Upload } from 'lucide-react';
 
-const chartConfig = {
-  confidence: {
-    label: "Interpolation Confidence",
-    color: "#2563eb", // Primary blue from app theme
-  },
-};
-
-const mockGraphData = [
-  { frame: "01", confidence: 0.99 },
-  { frame: "02", confidence: 0.95 },
-  { frame: "03", confidence: 0.88 },
-  { frame: "04", confidence: 0.82 },
-  { frame: "05", confidence: 0.79 },
-  { frame: "06", confidence: 0.85 },
-  { frame: "07", confidence: 0.92 },
-  { frame: "08", confidence: 0.98 },
-  { frame: "09", confidence: 0.91 },
-  { frame: "10", confidence: 0.86 },
-  { frame: "11", confidence: 0.81 },
-  { frame: "12", confidence: 0.84 },
-  { frame: "13", confidence: 0.89 },
-  { frame: "14", confidence: 0.94 },
-  { frame: "15", confidence: 0.97 },
-  { frame: "16", confidence: 0.99 },
+const frameFields = [
+  ['frame1', 'First observation'],
+  ['frame3', 'Last observation'],
+  ['midpoint', 'Observed midpoint'],
 ];
 
-const UploadSection = ({ onUploadComplete }) => {
-  const [dragActive, setDragActive] = useState(false);
-  const [file, setFile] = useState(null);
-  const [uploadState, setUploadState] = useState('idle'); // idle, uploading, complete
-  const [progress, setProgress] = useState(0);
-  const [confidence, setConfidence] = useState(null);
-  const inputRef = useRef(null);
-
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFiles(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleChange = (e) => {
-    e.preventDefault();
-    if (e.target.files && e.target.files[0]) {
-      handleFiles(e.target.files[0]);
-    }
-  };
-
-  const handleFiles = (file) => {
-    setFile(file);
-    simulateUpload(file);
-  };
-
-  const simulateUpload = async (uploadedFile) => {
-    setUploadState('uploading');
-    setProgress(8);
-    const started = performance.now();
-    const form = new FormData();
-    form.append('frame1', uploadedFile);
-    form.append('resolution', '15min');
-
-    const interval = setInterval(() => {
-      setProgress((prev) => (prev >= 90 ? prev : prev + 6));
-    }, 120);
-
-    try {
-      const response = await fetch('/interpolate', { method: 'POST', body: form });
-      if (!response.ok) {
-        throw new Error('Interpolation failed');
-      }
-      const data = await response.json();
-      setConfidence(Number(data.metrics?.ssim || 0));
-      const seconds = ((performance.now() - started) / 1000).toFixed(1);
-      clearInterval(interval);
-      setProgress(100);
-      setUploadState('complete');
-      if (onUploadComplete) {
-        onUploadComplete({
-          file: uploadedFile,
-          processingTime: `${seconds}s`,
-          framesGenerated: 1 + (data.extra_frames?.length || 0),
-          metrics: data.metrics,
-          base_image: data.base_image,
-          ground_truth: data.ground_truth,
-          confidence: Number(data.metrics?.ssim || 0),
-        });
-      }
-    } catch (error) {
-      clearInterval(interval);
-      console.error(error);
-      setUploadState('idle');
-      setProgress(0);
-    }
-  };
-
-  const resetUpload = () => {
-    setFile(null);
-    setUploadState('idle');
-    setProgress(0);
-    setConfidence(null);
-    if (onUploadComplete) {
-      onUploadComplete(null);
-    }
-  };
+export default function UploadSection({ onRun, busy, error, resolution, setResolution, source, setSource, method, setMethod, unetAvailable }) {
+  const [names, setNames] = useState({});
+  const sample = source !== 'upload';
+  const milton = source === 'milton';
 
   return (
-    <LiquidCard index={0} className="viewer-card" height="h-auto mb-6">
-      <div className="viewer-header">
-        <div>
-          <h3 className="viewer-title">Data Ingestion</h3>
-          <p className="viewer-subtitle">Upload satellite frames to generate intermediate data</p>
-        </div>
-        {file && uploadState === 'complete' && (
-          <div className="viewer-actions">
-            <button 
-              onClick={resetUpload}
-              className="viewer-icon-btn"
-            >
-              <X size={16} />
-            </button>
+    <section className="sat-panel sat-setup" aria-labelledby="run-settings">
+      <div className="sat-panel-header">
+        <div className="sat-heading-icon"><Layers size={19} /></div>
+        <div><h2 id="run-settings">Run setup</h2><p>Choose inputs and frame spacing.</p></div>
+      </div>
+      <form className="sat-form" onSubmit={(event) => {
+        event.preventDefault();
+        onRun(sample ? undefined : new FormData(event.currentTarget));
+      }}>
+        <fieldset disabled={busy}>
+          <legend className="sat-label">Data source</legend>
+          <div className="sat-segment" aria-label="Data source">
+            <button type="button" aria-pressed={milton} onClick={() => setSource('milton')}><CloudRain size={16} /> Milton</button>
+            <button type="button" aria-pressed={source === 'sample'} onClick={() => setSource('sample')}><Satellite size={16} /> GOES-18</button>
+            <button type="button" aria-pressed={!sample} onClick={() => { if (sample) setNames({}); setSource('upload'); }}><Upload size={16} /> Upload</button>
           </div>
-        )}
-      </div>
-
-      <div className="p-6">
-        <AnimatePresence mode="wait">
-          {uploadState === 'idle' && (
-            <motion.div 
-              key="dropzone"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              className={`relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl transition-all duration-300 ${
-                dragActive 
-                  ? 'border-blue-500 bg-blue-50/50' 
-                  : 'border-[var(--app-hairline)] bg-[var(--app-canvas)] hover:border-[var(--app-muted)]'
-              }`}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-              onClick={() => inputRef.current?.click()}
-            >
-              <input
-                ref={inputRef}
-                type="file"
-                className="hidden"
-                onChange={handleChange}
-                accept="image/*,.nc,.h5"
-              />
-              
-              <div className="w-12 h-12 mb-3 rounded-full bg-white shadow-sm flex items-center justify-center text-blue-500">
-                <UploadCloud size={24} />
+          {sample ? (
+            <div className="sat-source">
+              <Database size={18} />
+              <div>
+                <strong>{milton ? 'Hurricane Milton' : 'GOES-18 ABI Channel 13'}</strong>
+                <p>{milton ? 'GOES-16 thermal infrared, 384 ? 384 px' : 'Thermal infrared, 512 ? 512 px'}</p>
+                <p>{milton ? '9 Oct 2024, 18:01?18:31 UTC' : '1 Jan 2024, 12:00?12:20 UTC'}</p>
               </div>
-              <p className="mb-2 text-sm text-[var(--app-ink)] font-medium">
-                <span className="text-blue-600 hover:underline cursor-pointer">Click to upload</span> or drag and drop
-              </p>
-              <p className="text-xs text-[var(--app-muted)]">
-                Supported formats: JPEG, PNG, NetCDF, HDF5
-              </p>
-            </motion.div>
+            </div>
+          ) : (
+            <div className="sat-uploads">
+              <p className="sat-hint">Use aligned thermal infrared PNG or JPEG frames from different times on the same grid and intensity scale. Large frames are scaled together.</p>
+              {frameFields.map(([name, label]) => (
+                <label className="sat-file" key={name}>
+                  <ImagePlus size={19} />
+                  <span><strong>{label}{name === 'midpoint' && <small>Optional</small>}</strong><span>{names[name] || 'Choose PNG or JPEG'}</span></span>
+                  <input type="file" name={name} accept=".png,.jpg,.jpeg" required={name !== 'midpoint'} onChange={(event) => setNames({ ...names, [name]: event.target.files[0]?.name })} />
+                </label>
+              ))}
+              {names.frame1 && names.frame1 === names.frame3 && (
+                <p className="sat-hint" role="status">Both endpoint filenames match. Check that the last file comes from a later observation.</p>
+              )}
+              <label className="sat-field">
+                <span>Endpoint gap <small>minutes</small></span>
+                <input type="number" name="endpoint_gap" defaultValue="30" min="0.1" step="any" required />
+              </label>
+            </div>
           )}
-
-          {uploadState === 'uploading' && (
-            <motion.div 
-              key="uploading"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="w-full h-48 flex flex-col items-center justify-center p-6 bg-[var(--app-canvas)] border border-[var(--app-hairline)] rounded-xl"
-            >
-              <Loader2 className="animate-spin text-blue-500 mb-4" size={32} />
-              <p className="text-sm font-medium text-[var(--app-ink)] mb-4">Processing {file?.name}...</p>
-              
-              <div className="w-full max-w-xs h-2 bg-slate-200 rounded-full overflow-hidden">
-                <motion.div 
-                  className="h-full bg-blue-500 rounded-full"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progress}%` }}
-                  transition={{ ease: "linear", duration: 0.1 }}
-                />
-              </div>
-              <p className="text-xs text-[var(--app-muted)] mt-2">{progress}% complete</p>
-            </motion.div>
-          )}
-
-          {uploadState === 'complete' && (
-            <motion.div 
-              key="complete"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full flex flex-col gap-4"
-            >
-              <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-xl">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                    <CheckCircle className="text-green-600" size={20} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-[var(--app-ink)]">{file?.name}</p>
-                    <p className="text-xs text-green-600 font-medium">Successfully processed</p>
-                  </div>
-                </div>
-                <div className="flex gap-3 text-xs text-[var(--app-muted)]">
-                  <div className="flex flex-col items-end">
-                    <span className="font-medium text-[var(--app-ink)]">{(file?.size / (1024 * 1024)).toFixed(2)} MB</span>
-                    <span>Processed Size</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Professional Graph Area */}
-              <div className="rounded-xl border border-[var(--app-hairline)] bg-white p-5 shadow-sm mt-2">
-                <div className="flex items-center gap-2 mb-6">
-                  <Activity className="h-5 w-5 text-blue-600" />
-                  <h4 className="text-[15px] font-semibold text-[var(--app-ink)]">Frame Interpolation Confidence</h4>
-                </div>
-                <div className="h-48 w-full">
-                  <ChartContainer config={chartConfig} className="h-full w-full">
-                    <AreaChart data={mockGraphData.map((point) => ({ ...point, confidence: confidence || point.confidence }))} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="colorConfidence" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="var(--color-confidence)" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="var(--color-confidence)" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--app-hairline)" />
-                      <XAxis 
-                        dataKey="frame" 
-                        tickLine={false} 
-                        axisLine={false} 
-                        tickMargin={12}
-                        tickFormatter={(value) => `F${value}`}
-                        style={{ fontSize: '11px', fill: 'var(--app-muted)' }}
-                      />
-                      <YAxis 
-                        tickLine={false} 
-                        axisLine={false} 
-                        tickMargin={12}
-                        domain={[0.7, 1]}
-                        style={{ fontSize: '11px', fill: 'var(--app-muted)' }}
-                      />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Area
-                        type="monotone"
-                        dataKey="confidence"
-                        stroke="var(--color-confidence)"
-                        fillOpacity={1}
-                        fill="url(#colorConfidence)"
-                        strokeWidth={2}
-                        activeDot={{ r: 6, fill: "var(--color-confidence)", stroke: "#fff", strokeWidth: 2 }}
-                      />
-                    </AreaChart>
-                  </ChartContainer>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </LiquidCard>
+          <label className="sat-field">
+            <span>Interpolation method</span>
+            <select name="method" value={method} onChange={(event) => setMethod(event.target.value)}>
+              <option value="linear">Linear blend</option>
+              <option value="u-net" disabled={unetAvailable === false}>U-Net (experimental)</option>
+            </select>
+          </label>
+          <label className="sat-field">
+            <span>Interpolation steps</span>
+            <select name="resolution" value={resolution} onChange={(event) => setResolution(event.target.value)}>
+              <option value="15min">Midpoint</option>
+              <option value="7.5min">Midpoint and quarters</option>
+            </select>
+          </label>
+          <button className="sat-primary" type="submit">
+            <Play size={17} fill="currentColor" aria-hidden="true" /> {busy ? 'Generating frames…' : sample ? (milton ? 'Run Hurricane Milton' : 'Run GOES sample') : 'Interpolate frames'}
+          </button>
+        </fieldset>
+        {busy && <p className="sat-hint" role="status">Processing the satellite observations.</p>}
+        {error && <p className="sat-error" role="alert">{error}</p>}
+      </form>
+    </section>
   );
-};
-
-export default UploadSection;
+}

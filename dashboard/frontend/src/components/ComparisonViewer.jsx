@@ -1,114 +1,129 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Maximize2, Minimize2, SkipForward, SkipBack } from 'lucide-react';
-import { LiquidCard } from './ui/LiquidCard';
+import React, { useEffect, useState } from 'react';
+import { Download, Pause, Play, ScanLine, SkipBack, SkipForward } from 'lucide-react';
 
-const ComparisonViewer = ({ uploadData }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(50);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const videoContainerRef = useRef(null);
+const formatMinutes = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 });
+
+export default function ComparisonViewer({ result }) {
+  const [frameIndex, setFrameIndex] = useState(result.extra_frames.length ? 2 : 1);
+  const [layer, setLayer] = useState('sequence');
+  const [split, setSplit] = useState(50);
+  const [playing, setPlaying] = useState(false);
+  const [compareEnabled, setCompareEnabled] = useState(true);
+  const [firstQuarter, thirdQuarter] = result.extra_frames;
+  const sequence = [
+    ['First observation', result.start_image],
+    ...(firstQuarter ? [['First quarter', firstQuarter]] : []),
+    ['Predicted midpoint', result.base_image],
+    ...(thirdQuarter ? [['Third quarter', thirdQuarter]] : []),
+    ['Last observation', result.end_image],
+  ];
+  const size = result.frame_size;
+  const resized = size && (size.width !== size.input_width || size.height !== size.input_height);
+  const midpointIndex = firstQuarter ? 2 : 1;
+  const lastIndex = sequence.length - 1;
+  const views = {
+    ...(result.endpoint_change_image && { motion: ['Change between observations', result.endpoint_change_image] }),
+    ...(result.engine === 'u-net' && {
+      baseline: ['Linear-blend midpoint', result.baseline_image],
+      difference: ['Difference from linear blend', result.differential_image],
+    }),
+    ...(result.observed_error_image && { error: ['Absolute error against observed midpoint', result.observed_error_image] }),
+    edges: ['Predicted edges (Sobel)', result.sobel_image],
+  };
 
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
+    if (!playing) return;
+    const ticker = window.setInterval(() => {
+      setFrameIndex((current) => (current + 1) % (lastIndex + 1));
+    }, 850);
+    return () => window.clearInterval(ticker);
+  }, [playing, lastIndex]);
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, []);
+  const [title, image] = layer === 'sequence' ? sequence[frameIndex] : views[layer];
+  const canCompare = layer === 'sequence' && frameIndex === midpointIndex && result.ground_truth;
+  const compare = canCompare && compareEnabled && !playing;
+  const offset = result.interval_minutes == null
+    ? 'Frame ' + (frameIndex + 1) + ' of ' + sequence.length
+    : '+' + formatMinutes.format(result.interval_minutes * frameIndex) + ' min';
 
-  const handlePlayPause = () => {
-    setIsPlaying(!isPlaying);
-  };
-
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      if (videoContainerRef.current) {
-        videoContainerRef.current.requestFullscreen().catch(err => {
-          console.error(`Error attempting to enable fullscreen: ${err.message}`);
-        });
-      }
-    } else {
-      document.exitFullscreen();
-    }
-  };
+  function jump(index) {
+    setPlaying(false);
+    setFrameIndex(index);
+  }
 
   return (
-    <LiquidCard index={0} className="viewer-card">
-      <div className="viewer-header">
-        <div>
-          <h3 className="viewer-title">Model Output Comparison</h3>
-          <p className="viewer-subtitle">Ground truth vs AI interpolation</p>
-        </div>
-        <div className="viewer-actions">
-          <select className="viewer-select">
-            <option>15-min Interval</option>
-            <option>7.5-min Interval</option>
-          </select>
-          <button className="viewer-icon-btn" onClick={toggleFullscreen}>
-            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
+    <section className="sat-panel sat-result" aria-labelledby="observation-heading">
+      <div className="sat-panel-header sat-result-header">
+        <div className="sat-heading-icon"><ScanLine size={19} /></div>
+        <div><h2 id="observation-heading">Observation viewer</h2><p>{result.source}</p></div>
+        <div className="sat-exports">
+          <a className="sat-secondary" href={image} download={title.toLowerCase().replace(/[^a-z]+/g, '-') + '.png'}>
+            <Download size={14} /> PNG
+          </a>
+          <a className="sat-secondary" href="/download_h5">
+            <Download size={14} /> HDF5
+          </a>
         </div>
       </div>
-
-      <div className="viewer-video-container" ref={videoContainerRef}>
-        <div className="video-placeholder">
-          <div className="comparison-slider">
-            <div className="original-view">
-              <span className="badge badge-gt">Ground Truth (GOES-19)</span>
-              <div
-                className="fake-img gt-img"
-                style={uploadData?.ground_truth ? { backgroundImage: `url(${uploadData.ground_truth})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
-              ></div>
-            </div>
-            <div className="generated-view" style={{ width: `${100 - progress}%` }}>
-              <span className="badge badge-gen">AI Interpolated</span>
-              <div
-                className="fake-img gen-img absolute right-0"
-                style={uploadData?.base_image ? { backgroundImage: `url(${uploadData.base_image})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
-              ></div>
-            </div>
-            <div className="slider-handle" style={{ left: `${progress}%` }}>
-              <div className="handle-knob">
-                <div className="handle-lines">
-                  <div className="handle-line"></div>
-                  <div className="handle-line"></div>
-                </div>
-              </div>
-            </div>
-            <input 
-              type="range" 
-              min="0" 
-              max="100" 
-              value={progress}
-              onChange={(e) => setProgress(e.target.value)}
-              className="slider-input"
-            />
+      <div className="sat-result-body">
+        <div className="sat-result-toolbar">
+          <label className="sat-field">
+            Analysis layer
+            <select value={layer} onChange={(event) => {
+              setPlaying(false);
+              setLayer(event.target.value);
+            }}>
+              <option value="sequence">Satellite sequence</option>
+              {Object.entries(views).map(([key, [name]]) => <option key={key} value={key}>{name}</option>)}
+            </select>
+          </label>
+          {canCompare && !playing && <label className="sat-compare-control">
+            <input type="checkbox" checked={compareEnabled} onChange={(event) => setCompareEnabled(event.target.checked)} />
+            Compare observed midpoint
+          </label>}
+        </div>
+        {(resized || result.identical_endpoints) && (
+          <div className="sat-result-notes" role="status">
+            {resized && <p>{size.input_width} ? {size.input_height} input ? processed at {size.width} ? {size.height}.</p>}
+            {result.identical_endpoints && <p>Both endpoints have the same image content. Use observations from different times to see motion.</p>}
           </div>
-        </div>
-      </div>
-
-      <div className="viewer-controls">
-        <button className="viewer-control-btn">
-          <SkipBack size={18} />
-        </button>
-        <button className="viewer-play-btn" onClick={handlePlayPause}>
-          {isPlaying ? <Pause size={20} /> : <Play size={20} className="ml-1" />}
-        </button>
-        <button className="viewer-control-btn">
-          <SkipForward size={18} />
-        </button>
-        <div className="viewer-progress-bar">
-          <div className="viewer-progress-track">
-            <div className="viewer-progress-fill" style={{ width: '45%' }}></div>
+        )}
+        <figure className="sat-result-figure">
+          <div className="sat-preview-image sat-result-stage">
+            <div className="sat-frame">
+              <img src={image} alt={title} />
+              {compare && <img
+                className="sat-overlay"
+                src={result.ground_truth}
+                alt="Observed midpoint"
+                style={{ clipPath: 'inset(0 ' + (100 - split) + '% 0 0)' }}
+              />}
+              {compare && <div aria-hidden="true" className="sat-split-line" style={{ left: split + '%' }} />}
+            </div>
           </div>
-          <span className="viewer-time">04:30 UTC</span>
-        </div>
+          <figcaption>
+            <span>{title}</span>
+            {layer === 'sequence' && <span className="tabular-nums">{offset}</span>}
+          </figcaption>
+        </figure>
+        {layer === 'sequence' && (
+          <div className="sat-timeline">
+            <div className="sat-transport">
+              <button type="button" className="sat-transport-btn" aria-label="Previous frame" disabled={frameIndex === 0} onClick={() => jump(frameIndex - 1)}><SkipBack size={16} /></button>
+              <button type="button" className="sat-transport-btn sat-play" aria-label={playing ? 'Pause playback' : 'Play sequence'} onClick={() => setPlaying(!playing)}>
+                {playing ? <Pause size={16} /> : <Play size={16} />}
+              </button>
+              <button type="button" className="sat-transport-btn" aria-label="Next frame" disabled={frameIndex === lastIndex} onClick={() => jump(frameIndex + 1)}><SkipForward size={16} /></button>
+              <input className="sat-scrubber" aria-label="Sequence frame" aria-valuetext={title + ', ' + offset} type="range" min="0" max={lastIndex} value={frameIndex} onChange={(event) => jump(Number(event.target.value))} />
+            </div>
+            <div className="sat-timeline-labels"><span>First observation</span><span>Last observation</span></div>
+          </div>
+        )}
+        {compare && <label className="sat-field">
+          <span className="sat-timeline-labels"><span>Observed midpoint</span><span>Predicted midpoint</span></span>
+          <input aria-label="Observed versus predicted split" type="range" min="0" max="100" value={split} onChange={(event) => setSplit(Number(event.target.value))} />
+        </label>}
       </div>
-    </LiquidCard>
+    </section>
   );
-};
-
-export default ComparisonViewer;
+}
