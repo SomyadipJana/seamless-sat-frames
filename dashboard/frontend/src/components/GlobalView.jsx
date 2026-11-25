@@ -1,98 +1,137 @@
-import React, { useState } from 'react';
-import { Globe, ExternalLink, Satellite, Radar, CloudRain, Waves, Radio } from 'lucide-react';
-import { LiquidCard } from './ui/LiquidCard';
+﻿import React, { useEffect, useState } from 'react';
+import { CloudRain, ExternalLink, Globe, Radar, Radio, RefreshCw, Satellite, Waves } from 'lucide-react';
+import './mosdac-feed.css';
 
-const TABS = [
-  { id: 'satellite', label: 'Satellite Images', icon: Satellite, url: '/gallery/?&prod=3SIMG_%27*_L1B_STD_IR1_V%27*.jpg&date=2026-09-26&count=8' },
-  { id: 'radar', label: 'RADAR', icon: Radar, url: '/gallery/?ds=dwr&prod=&date=2026-09-26&count=8' },
-  { id: 'weather', label: 'Weather', icon: CloudRain, url: '/gallery/?ds=weather&prod=&date=2026-09-26&count=8' },
-  { id: 'ocean', label: 'OceanState', icon: Waves, url: '/gallery/?ds=ocean&prod=&date=2026-09-26&count=8' },
-  { id: 'live', label: 'LIVE', icon: Radio, url: '/live/lite/index.html' },
+const origin = 'https://mosdac.gov.in';
+const feeds = [
+  { id: 'satellite', label: 'Satellite images', icon: Satellite, product: 'INSAT-3DS · Full-disk infrared', source: '/gallery/index.html?prod=3SIMG_%27%2A_L1B_STD_IR1_V%27%2A.jpg', maxAge: 120 },
+  { id: 'radar', label: 'Radar', icon: Radar, product: 'DWR RCTLS · Maximum reflectivity', source: '/gallery/index.html?ds=dwr', maxAge: 60 },
+  { id: 'weather', label: 'Weather', icon: CloudRain, product: 'WRF · Ahmedabad temperature forecast', source: '/gallery/index.html?ds=weather' },
+  { id: 'ocean', label: 'Ocean state', icon: Waves, product: 'Regional · Significant wave height forecast', source: '/gallery/index.html?ds=ocean' },
+  { id: 'live', label: 'Live map', icon: Radio, product: 'MOSDAC LIVE', source: '/live/lite/index.html' },
 ];
+const formatTime = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short',
+});
+const formattedIST = (value) => formatTime.format(new Date(value)) + ' IST';
 
-const GlobalView = () => {
-  const [activeTab, setActiveTab] = useState(TABS[0]);
+function defaultFrame(frames, feed) {
+  if (!frames.length) return 0;
+  if (feed.maxAge) return frames.length - 1;
+  if (feed.id === 'ocean') {
+    const next = frames.findIndex((frame) => Date.parse(frame.timestamp) >= Date.now());
+    return next < 0 ? frames.length - 1 : next;
+  }
+  return 0;
+}
+
+function Preview({ feed }) {
+  const [data, setData] = useState(null);
+  const [selection, setSelection] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState('');
+  const [failedImage, setFailedImage] = useState(null);
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function refresh() {
+      setBusy(true);
+      setError('');
+      try {
+        const response = await fetch('/feeds/mosdac/' + feed.id, { signal: controller.signal, cache: 'no-store' });
+        const listing = await response.json();
+        if (!response.ok) throw new Error(listing.error);
+        setData(listing);
+        setFailedImage(null);
+      } catch (failure) {
+        if (!controller.signal.aborted) setError(failure.message || 'MOSDAC feed unavailable.');
+      } finally {
+        if (!controller.signal.aborted) setBusy(false);
+      }
+    }
+
+    refresh();
+    const timer = window.setInterval(refresh, 5 * 60_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [feed.id, revision]);
+
+  const frames = data?.frames ?? [];
+  const chosen = frames.findIndex((frame) => frame.url === selection);
+  const index = chosen < 0 ? defaultFrame(frames, feed) : chosen;
+  const frame = frames[index];
+  const latest = feed.maxAge && frames.at(-1);
+  const age = latest ? (Date.parse(data.checked_at) - Date.parse(latest.timestamp)) / 60_000 : null;
 
   return (
-    <LiquidCard index={0} className="viewer-card" height="h-[650px] mb-6">
-      <div className="flex flex-col gap-4 pb-2 mb-2 w-full">
-        <div className="flex justify-between items-center w-full px-1">
-          <h3 className="text-[17px] font-semibold text-[var(--app-ink)]">
-            Real-time geospatial data visualization
-          </h3>
-          <a 
-            href={`https://mosdac.gov.in${activeTab.url}`} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
-            title="Open current view in new tab"
-          >
-            <ExternalLink size={14} className="shrink-0" /> Open
+    <>
+      <div className="mosdac-toolbar">
+        <div>
+          <h3>{feed.product}</h3>
+          <p>{frame?.timestamp ? (feed.maxAge ? 'Observed ' : 'Forecast valid ') + formattedIST(frame.timestamp)
+            : frame?.run_date ? 'Model run ' + frame.run_date + ' · lead ' + frame.lead_hours + ' h'
+              : 'Source timestamps appear when imagery is available.'}</p>
+        </div>
+        <button type="button" className="sat-secondary" disabled={busy} onClick={() => { setFailedImage(null); setRevision((value) => value + 1); }}>
+          <RefreshCw size={16} /> {busy ? 'Checking…' : 'Refresh'}
+        </button>
+      </div>
+      <div className="mosdac-canvas">
+        {frame && failedImage !== frame.url ? (
+          <img key={frame.url} src={frame.url} alt={feed.product} onError={() => setFailedImage(frame.url)} />
+        ) : (
+          <p role="status">{busy && !data ? 'Checking the MOSDAC feed…' : failedImage ? 'MOSDAC listed this image, but it could not be loaded.' : error ? 'The source feed is currently unavailable.' : 'MOSDAC returned no images for this product.'}</p>
+        )}
+      </div>
+      <div className="mosdac-timeline">
+        {frames.length > 1 && (
+          <label>
+            <span>Source frames <strong>{index + 1} / {frames.length}</strong></span>
+            <input aria-label="Source frame" type="range" min="0" max={frames.length - 1} value={index} onChange={(event) => setSelection(frames[Number(event.target.value)].url)} />
+          </label>
+        )}
+        <p aria-live="polite">
+          {error ? (data ? 'Refresh failed. Showing previously retrieved images.' : error)
+            : data ? 'Checked ' + formattedIST(data.checked_at) + ' · Refreshes every 5 minutes' : ''}
+          {age > feed.maxAge && <span className="mosdac-delay"> Latest observation is delayed.</span>}
+        </p>
+      </div>
+    </>
+  );
+}
+
+export default function GlobalView() {
+  const [feed, setFeed] = useState(feeds[0]);
+  return (
+    <section className="sat-panel mosdac-panel">
+      <div className="sat-panel-header mosdac-header">
+        <div className="sat-heading-icon"><Globe size={19} /></div>
+        <div><h2>Official data feeds</h2><p>ISRO Space Applications Centre · MOSDAC</p></div>
+        <a className="sat-secondary" href={origin + feed.source} target="_blank" rel="noopener noreferrer">
+          <ExternalLink size={15} /> Open source
+        </a>
+      </div>
+      <div className="mosdac-tabs" role="group" aria-label="Data feed">
+        {feeds.map(({ icon: Icon, ...item }) => (
+          <button key={item.id} type="button" aria-pressed={feed.id === item.id} onClick={() => setFeed(item)}>
+            <Icon size={16} /> {item.label}
+          </button>
+        ))}
+      </div>
+      {feed.id === 'live' ? (
+        <div className="mosdac-live">
+          <Radio size={34} />
+          <h3>MOSDAC LIVE interactive map</h3>
+          <p>Explore the provider’s latest geospatial layers and their timestamps in the official viewer.</p>
+          <a className="sat-primary" href={origin + feed.source} target="_blank" rel="noopener noreferrer">
+            <ExternalLink size={16} /> Open MOSDAC LIVE
           </a>
         </div>
-        
-        {/* Navigation Tabs - Modern Pill-shaped buttons */}
-        <div 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '10px', 
-            width: '100%', 
-            overflowX: 'auto',
-            scrollbarWidth: 'none',
-            paddingBottom: '2px'
-          }}
-        >
-          {TABS.map(tab => {
-            const Icon = tab.icon;
-            const isActive = activeTab.id === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '7px 16px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  borderRadius: '100px', // perfect pill shape
-                  whiteSpace: 'nowrap',
-                  border: isActive ? '1px solid #3b82f6' : '1px solid #cbd5e1',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  background: isActive ? '#eff6ff' : '#ffffff',
-                  color: isActive ? '#1d4ed8' : '#475569',
-                  boxShadow: isActive ? '0 2px 4px rgba(59, 130, 246, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)'
-                }}
-              >
-                <Icon size={15} style={{ flexShrink: 0, color: isActive ? '#3b82f6' : '#64748b' }} />
-                {tab.label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-      
-      <div className="w-full h-[calc(100%-120px)] pb-4 px-4 pt-0">
-        <div className="w-full h-full rounded-xl overflow-hidden border-2 border-slate-800 bg-[#111] relative flex items-center justify-center shadow-inner">
-          <iframe 
-            key={activeTab.id}
-            src={activeTab.url} 
-            className="w-full h-full absolute inset-0 border-0 z-10 bg-[#111]"
-            title={`MOSDAC ${activeTab.label}`}
-            sandbox="allow-scripts allow-same-origin allow-popups"
-          />
-          {/* Fallback text while loading */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-0 text-white/40">
-             <Globe size={40} className="mb-4 animate-pulse opacity-50" />
-             <p className="text-sm font-medium">Loading {activeTab.label} feed...</p>
-          </div>
-        </div>
-      </div>
-    </LiquidCard>
+      ) : <Preview key={feed.id} feed={feed} />}
+    </section>
   );
-};
-
-export default GlobalView;
+}
