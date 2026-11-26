@@ -188,10 +188,30 @@ export async function analyseSequence(result) {
     return { minutes: window + window * ratio, kind: 'Projected', field, ...summarise(field) };
   });
 
+  // Scene figures for the projection follow the least-squares trend of the
+  // observed and interpolated frames; the projected fields drive the map only.
+  const fit = (key) => {
+    const xs = observed.map((point) => point.minutes);
+    const ys = observed.map((point) => point[key]);
+    const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const my = ys.reduce((a, b) => a + b, 0) / ys.length;
+    let num = 0;
+    let den = 0;
+    xs.forEach((x, i) => { num += (x - mx) * (ys[i] - my); den += (x - mx) ** 2; });
+    const slope = den ? num / den : 0;
+    return (x) => my + slope * (x - mx);
+  };
+  for (const key of ['meanRate', 'rainArea', 'heavyArea', 'deepConvection', 'conditionalRate']) {
+    const line = fit(key);
+    const limit = key === 'meanRate' || key === 'conditionalRate' ? 72 : 100;
+    projected.forEach((point) => { point[key] = Math.min(limit, Math.max(0, line(point.minutes))); });
+  }
+
   const start = observed[0];
   const end = observed[steps];
-  const change = start.meanRate > 0.05 ? (end.meanRate - start.meanRate) / start.meanRate : end.meanRate - start.meanRate;
-  const trend = change > 0.08 ? 'Intensifying' : change < -0.08 ? 'Weakening' : 'Steady';
+  const outlookPoint = projected[projected.length - 1];
+  const change = end.meanRate > 0.05 ? (outlookPoint.meanRate - end.meanRate) / end.meanRate : outlookPoint.meanRate - end.meanRate;
+  const trend = change > 0.05 ? 'Intensifying' : change < -0.05 ? 'Weakening' : 'Steady';
   const hours = stepMinutes ? window / 60 : null;
   const coolingRate = hours ? (end.coldest - start.coldest) / hours : null;
 

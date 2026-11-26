@@ -470,14 +470,9 @@ body {
 .rain-trend svg { color: var(--s-muted); }
 
 .rain-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-bottom: 1px solid var(--s-line); }
-.rain-stats > div { min-width: 0; padding: 14px 18px; }
+.rain-stats > div { min-width: 0; padding: 16px 20px; }
 .rain-stats > div + div { border-left: 1px solid var(--s-line); }
 .rain-stats dt { font-size: .75rem; color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rain-stats dd { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; font-variant-numeric: tabular-nums; }
-.rain-stat-now { font-size: 1.25rem; font-weight: 650; letter-spacing: -0.02em; color: var(--s-ink); }
-.rain-stat-next { display: inline-flex; align-items: center; gap: 2px; font-size: .875rem; font-weight: 600; color: var(--s-ink-2); }
-.rain-stat-next svg { color: var(--s-faint); align-self: center; }
-.rain-stats dd small { font-size: .75rem; color: var(--s-muted); }
 
 .rain-body { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
 .rain-body-chart, .rain-body-map { min-width: 0; padding: 16px 18px; }
@@ -575,3 +570,12 @@ body {
 .sat-source-meta dd { font-weight: 550; color: var(--s-ink); text-align: right; font-variant-numeric: tabular-nums; }
 .sat-setup .ui-select-trigger { min-height: 36px; font-size: .8125rem; }
 .sat-setup .sat-primary { min-height: 38px; margin-top: 4px; font-size: .8125rem; letter-spacing: .01em; }
+
+/* ---------- Outlook figures ---------- */
+.rain-stats .rain-stat-now { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; font-size: 1.875rem; font-weight: 650; letter-spacing: -0.03em; line-height: 1.05; color: var(--s-ink); font-variant-numeric: tabular-nums; }
+.rain-stats .rain-stat-now small { font-size: .8125rem; font-weight: 500; letter-spacing: 0; color: var(--s-muted); }
+.rain-stats .rain-stat-next { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: .75rem; color: var(--s-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rain-stats .rain-stat-next strong { font-weight: 650; color: var(--s-ink); }
+.rain-stats .rain-stat-next em { padding: 1px 6px; border-radius: 4px; background: var(--s-sunken); font-style: normal; font-weight: 600; color: var(--s-ink-2); }
+.rain-chart-body { height: 280px; }
+@media (max-width: 520px) { .rain-stats .rain-stat-now { font-size: 1.5rem; } .rain-chart-body { height: 230px; } }

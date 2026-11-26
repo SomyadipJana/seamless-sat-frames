@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ArrowDownRight, ArrowRight, ArrowUpRight, CloudRain, Info } from 'lucide-react';
 import { analyseSequence, HEAVY_RAIN_MM, RAIN_CLASSES, renderRainMap } from '../lib/rainfall';
 
@@ -23,21 +23,50 @@ function ChartTooltip({ active, payload, unit, stepMinutes }) {
   );
 }
 
-function niceMax(value) {
-  const target = Math.max(value * 1.15, 0.5);
-  const magnitude = 10 ** Math.floor(Math.log10(target));
-  return [1, 2, 2.5, 5, 10].find((m) => m * magnitude >= target) * magnitude;
+function niceStep(raw) {
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 2.5, 5, 10].find((m) => m * magnitude >= raw) * magnitude;
 }
 
-function TrendChart({ unit, data, nowMinutes, stepMinutes, percent }) {
-  const peak = Math.max(...data.map((point) => point.observed ?? point.projected ?? 0));
-  const top = percent ? 100 : niceMax(peak);
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => +(top * f).toFixed(2));
+// Axis zoomed to the data so real change in the frames is visible.
+function axisFor(values) {
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const pad = Math.max((hi - lo) * 0.35, hi * 0.06, 0.2);
+  const step = niceStep((hi - lo + 2 * pad) / 4);
+  const min = Math.max(0, Math.floor((lo - pad) / step) * step);
+  const max = Math.ceil((hi + pad) / step) * step;
+  const ticks = [];
+  for (let t = min; t <= max + step / 2; t += step) ticks.push(+t.toFixed(4));
+  return { min, max, ticks, digits: step < 1 ? 1 : 0 };
+}
+
+function PointLabel({ x, y, value, index, target, tone }) {
+  if (index !== target || value == null) return null;
+  return (
+    <g>
+      <rect x={x - 22} y={y - 30} width={44} height={20} rx={5} fill={tone === 'solid' ? '#18191c' : '#fff'} stroke={tone === 'solid' ? 'none' : '#257de0'} />
+      <text x={x} y={y - 16} textAnchor="middle" fontSize={11} fontWeight={600} fill={tone === 'solid' ? '#fff' : '#18191c'}>{fixed(value, 1)}</text>
+    </g>
+  );
+}
+
+function TrendChart({ unit, data, nowMinutes, stepMinutes }) {
+  const values = data.flatMap((point) => [point.observed, point.projected]).filter((v) => v != null);
+  const axis = axisFor(values);
+  const lastObserved = data.findLastIndex((point) => point.observed != null);
+  const lastIndex = data.length - 1;
   return (
     <figure className="rain-chart">
       <div className="rain-chart-body">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 12, right: 14, bottom: 0, left: -8 }}>
+          <ComposedChart data={data} margin={{ top: 34, right: 26, bottom: 0, left: -6 }}>
+            <defs>
+              <linearGradient id="rain-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={SERIES} stopOpacity={0.16} />
+                <stop offset="100%" stopColor={SERIES} stopOpacity={0} />
+              </linearGradient>
+            </defs>
             <CartesianGrid stroke="#eceef2" vertical={false} />
             <XAxis
               dataKey="minutes"
@@ -48,21 +77,25 @@ function TrendChart({ unit, data, nowMinutes, stepMinutes, percent }) {
               tick={{ fill: '#5f6b7e', fontSize: 11 }}
               tickLine={false}
               axisLine={{ stroke: '#d6dae1' }}
+              padding={{ left: 10, right: 10 }}
             />
             <YAxis
               tick={{ fill: '#5f6b7e', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
               width={40}
-              ticks={ticks}
-              tickFormatter={(value) => (percent ? fixed(value, 0) + '%' : fixed(value, top < 5 ? 1 : 0))}
-              domain={[0, top]}
+              ticks={axis.ticks}
+              domain={[axis.min, axis.max]}
+              tickFormatter={(value) => fixed(value, axis.digits)}
             />
-            <ReferenceLine x={nowMinutes} stroke="#8b95a5" strokeDasharray="2 3" label={{ value: 'Now', position: 'insideTopRight', fill: '#5f6b7e', fontSize: 11 }} />
+            <ReferenceLine x={nowMinutes} stroke="#b4bac4" strokeDasharray="3 3" label={{ value: 'Now', position: 'insideBottomRight', fill: '#8b95a5', fontSize: 10 }} />
             <Tooltip content={<ChartTooltip unit={unit} stepMinutes={stepMinutes} />} cursor={{ stroke: '#8b95a5', strokeWidth: 1 }} />
-            <Line type="monotone" dataKey="observed" stroke={SERIES} strokeWidth={2} dot={{ r: 4, fill: SERIES, stroke: '#fff', strokeWidth: 2 }} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} connectNulls={false} isAnimationActive={false} />
-            <Line type="monotone" dataKey="projected" stroke={SERIES} strokeWidth={2} strokeDasharray="5 4" dot={{ r: 4, fill: '#fff', stroke: SERIES, strokeWidth: 2, strokeDasharray: '0' }} activeDot={{ r: 5, fill: '#fff', stroke: SERIES, strokeWidth: 2, strokeDasharray: '0' }} connectNulls={false} isAnimationActive={false} />
-          </LineChart>
+            <Area type="monotone" dataKey="observed" stroke="none" fill="url(#rain-fill)" baseValue={axis.min} isAnimationActive={false} activeDot={false} tooltipType="none" />
+            <Line type="monotone" dataKey="observed" stroke={SERIES} strokeWidth={2} dot={{ r: 4, fill: SERIES, stroke: '#fff', strokeWidth: 2 }} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} connectNulls={false} isAnimationActive={false}
+              label={(props) => <PointLabel {...props} target={lastObserved} tone="solid" />} />
+            <Line type="monotone" dataKey="projected" stroke={SERIES} strokeWidth={2} strokeDasharray="5 4" dot={{ r: 4, fill: '#fff', stroke: SERIES, strokeWidth: 2, strokeDasharray: '0' }} activeDot={{ r: 5, fill: '#fff', stroke: SERIES, strokeWidth: 2, strokeDasharray: '0' }} connectNulls={false} isAnimationActive={false}
+              label={(props) => <PointLabel {...props} target={lastIndex} tone="outline" />} />
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </figure>
@@ -125,13 +158,14 @@ export default function RainfallPanel({ result, source }) {
   ];
   const TrendIcon = trend === 'Intensifying' ? ArrowUpRight : trend === 'Weakening' ? ArrowDownRight : ArrowRight;
   const horizon = stepMinutes != null ? `next ${fixed(window, 0)} min` : 'next window';
+  const aheadLabel = stepMinutes != null ? `+${fixed(window, 0)} min` : 'Next';
   const stats = [
-    ['Rain rate', fixed(now.meanRate, 1), fixed(outlook.meanRate, 1), 'mm/h'],
-    ['Raining area', fixed(now.rainArea, 0), fixed(outlook.rainArea, 0), '%'],
-    [`Heavy rain ≥ ${HEAVY_RAIN_MM} mm/h`, fixed(now.heavyArea, 0), fixed(outlook.heavyArea, 0), '%'],
+    { label: 'Rain rate', now: now.meanRate, next: outlook.meanRate, unit: 'mm/h', digits: 1 },
+    { label: 'Raining area', now: now.rainArea, next: outlook.rainArea, unit: '%', digits: 0 },
+    { label: `Heavy rain ≥ ${HEAVY_RAIN_MM} mm/h`, now: now.heavyArea, next: outlook.heavyArea, unit: '%', digits: 0 },
     accumulation != null
-      ? ['Accumulated', fixed(accumulation, 1), null, `mm / ${fixed(window, 0)} min`]
-      : ['Coldest cloud top', fixed(now.coldest - 273.15, 0), null, '°C'],
+      ? { label: 'Accumulated', now: accumulation, unit: `mm / ${fixed(window, 0)} min`, digits: 1 }
+      : { label: 'Coldest cloud top', now: now.coldest - 273.15, unit: '°C', digits: 0 },
   ];
 
   return (
@@ -143,16 +177,24 @@ export default function RainfallPanel({ result, source }) {
       </div>
 
       <dl className="rain-stats">
-        {stats.map(([label, current, projectedValue, unit]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>
-              <span className="rain-stat-now">{current}</span>
-              {projectedValue != null && <span className="rain-stat-next" title="Projected"><ArrowRight size={13} aria-hidden="true" />{projectedValue}</span>}
-              <small>{unit}</small>
-            </dd>
-          </div>
-        ))}
+        {stats.map((stat) => {
+          const delta = stat.next != null && stat.now > 0.05 ? ((stat.next - stat.now) / stat.now) * 100 : null;
+          return (
+            <div key={stat.label}>
+              <dt>{stat.label}</dt>
+              <dd className="rain-stat-now">{fixed(stat.now, stat.digits)}<small>{stat.unit}</small></dd>
+              <dd className="rain-stat-next">
+                {stat.next != null ? (
+                  <>
+                    <span>{aheadLabel}</span>
+                    <strong>{fixed(stat.next, stat.digits)}</strong>
+                    {delta != null && <em>{delta >= 0 ? '+' : '−'}{fixed(Math.abs(delta), 0)}%</em>}
+                  </>
+                ) : <span>Observed window</span>}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
 
       <div className="rain-body">
