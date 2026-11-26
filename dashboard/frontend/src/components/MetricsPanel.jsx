@@ -26,7 +26,7 @@ export default function MetricsPanel({ result }) {
             <div className="sat-kpi" key={key}>
               <dt>{title}</dt>
               <dd>
-                {scores[key] === 'Infinity' ? '∞' : scores[key] ?? '—'}
+                {scores[key] === 'Infinity' ? '∞' : scores[key] ?? <span className="sat-kpi-na">N/A</span>}
                 {key === 'psnr' && scores[key] && <small> dB</small>}
               </dd>
               {usingUnet && <dd className="sat-kpi-baseline">Linear blend {scores.baseline[key] === 'Infinity' ? '∞' : scores.baseline[key] ?? '—'}</dd>}

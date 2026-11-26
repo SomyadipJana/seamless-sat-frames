@@ -98,9 +98,9 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 6px 10px;
+  gap: 12px;
+  min-height: 38px;
+  padding: 8px 12px;
   border-radius: var(--s-radius-sm);
   color: var(--side-text);
   font-size: 13.5px;
@@ -109,9 +109,7 @@ body {
   transition: background-color .15s, color .15s, border-color .15s;
 }
 .dashboard-sidebar .sidebar-nav-item svg { flex: none; color: var(--side-muted); transition: color .15s; }
-.sat-nav-icon { display: grid; place-items: center; width: 28px; height: 28px; flex: none; margin-left: -4px; border-radius: 7px; transition: background-color .15s; }
-.dashboard-sidebar .sidebar-nav-item.active .sat-nav-icon { background: #34373e; }
-.dashboard-sidebar .sidebar-nav-item:hover { background: var(--side-raised); color: #fff; }
+.dashboard-sidebar .sidebar-nav-item.active .dashboard-sidebar .sidebar-nav-item:hover { background: var(--side-raised); color: #fff; }
 .dashboard-sidebar .sidebar-nav-item:hover svg { color: #d7dae0; }
 .dashboard-sidebar .sidebar-nav-item.active { background: var(--side-active); color: #fff; font-weight: 600; }
 .dashboard-sidebar .sidebar-nav-item.active svg { color: #fff; }
@@ -383,7 +381,6 @@ body {
 .sat-frame { position: relative; overflow: hidden; }
 .sat-frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .sat-frame .sat-overlay { position: absolute; inset: 0; height: 100%; }
-.sat-split-line { position: absolute; inset-block: 0; width: 2px; margin-left: -1px; pointer-events: none; background: #fff; box-shadow: 0 0 0 1px rgb(13 19 33 / 35%); }
 .sat-timeline, .sat-result-body > .sat-field { margin: 0 18px; }
 .sat-timeline { padding: 10px; border: 1px solid var(--s-line); border-radius: 10px; background: var(--s-subtle); }
 .sat-transport { display: flex; align-items: center; gap: 6px; }
@@ -579,3 +576,65 @@ body {
 .rain-stats .rain-stat-next em { padding: 1px 6px; border-radius: 4px; background: var(--s-sunken); font-style: normal; font-weight: 600; color: var(--s-ink-2); }
 .rain-chart-body { height: 280px; }
 @media (max-width: 520px) { .rain-stats .rain-stat-now { font-size: 1.5rem; } .rain-chart-body { height: 230px; } }
+
+/* ---------- Midpoint evaluation (aligned grid) ---------- */
+.sat-evaluation .sat-kpis { gap: 0; padding: 0; border-bottom: 1px solid var(--s-line); }
+.sat-evaluation .sat-kpi { padding: 14px 18px; border: 0; border-radius: 0; background: none; }
+.sat-evaluation .sat-kpi:nth-child(odd) { border-right: 1px solid var(--s-line); }
+.sat-evaluation .sat-kpi:nth-child(-n + 2) { border-bottom: 1px solid var(--s-line); }
+.sat-evaluation .sat-kpi dt { font-size: .75rem; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--s-muted); }
+.sat-evaluation .sat-kpi dd { margin-top: 4px; font-size: 1.375rem; line-height: 1.15; }
+.sat-evaluation .sat-kpi dd small { margin-left: 3px; }
+.sat-evaluation .sat-kpi .sat-kpi-baseline { font-size: .72rem; }
+.sat-evaluation .sat-endpoint { align-items: baseline; margin: 0; padding: 12px 18px 14px; border-top: 0; }
+.sat-kpi-na { font-size: .9375rem; font-weight: 500; color: var(--s-faint); }
+
+/* ---------- Compare split handle ---------- */
+.sat-frame.is-comparing { cursor: ew-resize; touch-action: none; user-select: none; }
+.sat-split-line { position: absolute; inset-block: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 0 1px rgb(13 19 33 / 30%); pointer-events: none; }
+.sat-split-handle {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  display: grid; place-items: center; width: 34px; height: 34px;
+  border: 2px solid #fff; border-radius: 50%;
+  background: rgb(24 25 28 / 82%); color: #fff;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+  cursor: ew-resize; pointer-events: auto;
+  backdrop-filter: blur(4px);
+  transition: transform .15s, background-color .15s;
+}
+.sat-split-handle:hover, .sat-frame.is-comparing:active .sat-split-handle { background: #18191c; transform: translate(-50%, -50%) scale(1.06); }
+.sat-split-handle:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.sat-split-tag { position: absolute; top: 10px; padding: 3px 8px; border-radius: 5px; background: rgb(24 25 28 / 72%); color: #fff; font-size: .68rem; font-weight: 600; letter-spacing: .02em; pointer-events: none; }
+.sat-split-tag-left { left: 10px; }
+.sat-split-tag-right { right: 10px; }
+
+/* ---------- Rain outlook alignment ---------- */
+.rain-body { grid-template-columns: minmax(0, 1fr) 400px; }
+.rain-body-chart { display: flex; flex-direction: column; }
+.rain-body-chart .rain-chart { flex: 1; display: flex; flex-direction: column; }
+.rain-body-chart .rain-chart-body { flex: 1; height: auto; min-height: 300px; }
+.rain-map-figure img { max-width: none; margin: 0; width: 100%; border: 1px solid var(--s-line); }
+.rain-scale { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px; max-width: none; margin: 12px 0 0; }
+.rain-scale-track { display: grid; gap: 5px; min-width: 0; }
+.rain-scale-ticks { position: relative; display: block; height: 14px; }
+.rain-scale-ticks span { position: absolute; top: 0; transform: translateX(-50%); }
+.rain-scale-ticks span:first-child { transform: none; }
+.rain-scale-ticks span:last-child { padding-left: 0; }
+.rain-scale-unit { margin-top: 9px; font-size: .68rem; color: var(--s-muted); }
+@media (max-width: 1180px) { .rain-body { grid-template-columns: minmax(0, 1fr) 340px; } }
+@media (max-width: 1000px) {
+  .rain-body { grid-template-columns: minmax(0, 1fr); }
+  .rain-body-chart .rain-chart-body { min-height: 260px; }
+  .rain-map-figure { max-width: 420px; }
+}
+
+/* ---------- Rain chart sizing ---------- */
+.rain-body-chart .rain-chart-body { flex: none; height: 420px; min-height: 0; }
+.rain-unit { margin-left: 6px; font-weight: 500; color: var(--s-muted); }
+@media (max-width: 1180px) { .rain-body-chart .rain-chart-body { height: 360px; } }
+@media (max-width: 1000px) { .rain-body-chart .rain-chart-body { height: 280px; } }
+@media (max-width: 520px) { .rain-body-chart .rain-chart-body { height: 230px; } }
+
+/* Cards that host dropdowns must not clip the open menu. */
+.sat-setup, .sat-result, .sat-config-grid .sat-panel { overflow: visible; }
+.sat-setup .ui-select.is-open, .sat-result .ui-select.is-open { z-index: 60; }

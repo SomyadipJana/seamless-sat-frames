@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Select from './ui/Select';
-import { Download, Pause, Play, ScanLine, SkipBack, SkipForward } from 'lucide-react';
+import { ChevronsLeftRight, Download, Pause, Play, ScanLine, SkipBack, SkipForward } from 'lucide-react';
 
 const formatMinutes = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 });
 
@@ -47,6 +47,27 @@ export default function ComparisonViewer({ result }) {
     ? 'Frame ' + (frameIndex + 1) + ' of ' + sequence.length
     : '+' + formatMinutes.format(result.interval_minutes * frameIndex) + ' min';
 
+  const frameRef = useRef(null);
+
+  function splitFromPointer(event) {
+    const box = frameRef.current?.getBoundingClientRect();
+    if (!box) return;
+    setSplit(Math.min(100, Math.max(0, ((event.clientX - box.left) / box.width) * 100)));
+  }
+
+  function startDrag(event) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    splitFromPointer(event);
+  }
+
+  function splitKey(event) {
+    const delta = { ArrowLeft: -2, ArrowRight: 2, PageDown: -10, PageUp: 10 }[event.key];
+    if (delta != null) { event.preventDefault(); setSplit((value) => Math.min(100, Math.max(0, value + delta))); }
+    else if (event.key === 'Home') { event.preventDefault(); setSplit(0); }
+    else if (event.key === 'End') { event.preventDefault(); setSplit(100); }
+  }
+
   function jump(index) {
     setPlaying(false);
     setFrameIndex(index);
@@ -91,7 +112,7 @@ export default function ComparisonViewer({ result }) {
         )}
         <figure className="sat-result-figure">
           <div className="sat-preview-image sat-result-stage">
-            <div className="sat-frame">
+            <div className={`sat-frame${compare ? ' is-comparing' : ''}`} ref={frameRef} onPointerDown={compare ? startDrag : undefined} onPointerMove={compare ? (event) => { if (event.buttons) splitFromPointer(event); } : undefined}>
               <img src={image} alt={title} />
               {compare && <img
                 className="sat-overlay"
@@ -99,7 +120,27 @@ export default function ComparisonViewer({ result }) {
                 alt="Observed midpoint"
                 style={{ clipPath: 'inset(0 ' + (100 - split) + '% 0 0)' }}
               />}
-              {compare && <div aria-hidden="true" className="sat-split-line" style={{ left: split + '%' }} />}
+              {compare && (
+                <>
+                  <span className="sat-split-tag sat-split-tag-left">Observed</span>
+                  <span className="sat-split-tag sat-split-tag-right">Predicted</span>
+                  <div className="sat-split-line" style={{ left: split + '%' }}>
+                    <button
+                      type="button"
+                      className="sat-split-handle"
+                      role="slider"
+                      aria-label="Observed versus predicted split"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(split)}
+                      aria-valuetext={Math.round(split) + '% observed'}
+                      onKeyDown={splitKey}
+                    >
+                      <ChevronsLeftRight size={15} aria-hidden="true" />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <figcaption>
@@ -120,10 +161,6 @@ export default function ComparisonViewer({ result }) {
             <div className="sat-timeline-labels"><span>First observation</span><span>Last observation</span></div>
           </div>
         )}
-        {compare && <label className="sat-field">
-          <span className="sat-timeline-labels"><span>Observed midpoint</span><span>Predicted midpoint</span></span>
-          <input aria-label="Observed versus predicted split" type="range" min="0" max="100" value={split} onChange={(event) => setSplit(Number(event.target.value))} />
-        </label>}
       </div>
     </section>
   );

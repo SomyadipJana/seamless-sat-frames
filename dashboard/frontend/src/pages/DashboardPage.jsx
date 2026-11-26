@@ -13,6 +13,7 @@ export default function DashboardPage() {
   const [result, setResult] = useState(null);
   const [resolution, setResolution] = useState('15min');
   const [busy, setBusy] = useState(false);
+  const [elapsed, setElapsed] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export default function DashboardPage() {
   }, []);
 
   async function run(files) {
+    const started = performance.now();
     setBusy(true);
     setError('');
     setResult(null);
@@ -43,6 +45,7 @@ export default function DashboardPage() {
           ? 'The combined uploads must be under 30 MB.'
           : 'Interpolation failed. Check that the Flask backend is running on port 5000.'));
       }
+      setElapsed((performance.now() - started) / 1000);
       setResult(data);
     } catch (failure) {
       setError(failure.message);
@@ -60,7 +63,7 @@ export default function DashboardPage() {
         <div><dt>Data source</dt><dd>{source === 'milton' ? 'Hurricane Milton' : source === 'sample' ? 'GOES-18 sample' : 'Custom upload'}</dd></div>
         <div><dt>Method</dt><dd>{method === 'u-net' ? 'U-Net' : 'Linear blend'}</dd></div>
         <div><dt>Steps</dt><dd>{resolution === '7.5min' ? 'Midpoint + quarters' : 'Midpoint'}</dd></div>
-        <div><dt>Status</dt><dd><span className={`sat-run-dot${busy ? ' is-busy' : result ? ' is-done' : error ? ' is-error' : ''}`} aria-hidden="true" />{busy ? 'Generating' : result ? 'Complete' : error ? 'Failed' : 'Ready'}</dd></div>
+        <div><dt>Status</dt><dd><span className={`sat-run-dot${busy ? ' is-busy' : result ? ' is-done' : error ? ' is-error' : ''}`} aria-hidden="true" />{busy ? 'Generating' : result ? `Complete · ${elapsed < 1 ? Math.round(elapsed * 1000) + ' ms' : elapsed.toFixed(1) + ' s'}` : error ? 'Failed' : 'Ready'}</dd></div>
       </dl>
       <div className="sat-grid">
         <UploadSection onRun={run} busy={busy} error={error} resolution={resolution} setResolution={setResolution} source={source} setSource={setSource} method={method} setMethod={setMethod} unetAvailable={unetAvailable} />

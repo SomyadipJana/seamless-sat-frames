@@ -5,32 +5,35 @@ import '../pages/satellite-workspace.css';
 
 const iconProps = {
   width: 18, height: 18, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
-  strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+  strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
 };
 
 const DashboardIcon = () => (
   <svg {...iconProps}>
-    <rect x="2.75" y="2.75" width="6" height="8" rx="1.5" />
-    <rect x="11.25" y="2.75" width="6" height="4.5" rx="1.5" />
-    <rect x="2.75" y="13.25" width="6" height="4" rx="1.5" />
-    <rect x="11.25" y="9.75" width="6" height="7.5" rx="1.5" />
+    <rect x="2.75" y="2.75" width="6" height="6" rx="1.75" />
+    <rect x="11.25" y="2.75" width="6" height="6" rx="1.75" />
+    <rect x="2.75" y="11.25" width="6" height="6" rx="1.75" />
+    <rect x="11.25" y="11.25" width="6" height="6" rx="1.75" />
   </svg>
 );
 
 const SatelliteIcon = () => (
   <svg {...iconProps}>
-    <circle cx="10" cy="10" r="3.25" />
-    <ellipse cx="10" cy="10" rx="7.75" ry="3.1" transform="rotate(-30 10 10)" />
-    <circle cx="16.7" cy="6.1" r="1.4" fill="currentColor" stroke="none" />
+    <g transform="rotate(-45 10 10)">
+      <rect x="8" y="7.5" width="4" height="5" rx="1" />
+      <rect x="1.75" y="8" width="4.5" height="4" rx="0.75" />
+      <rect x="13.75" y="8" width="4.5" height="4" rx="0.75" />
+      <path d="M4 8v4M16 8v4M6.25 10H8M12 10h1.75M10 12.5v1.75M7.75 16.25a2.25 2.25 0 0 0 4.5 0" />
+    </g>
   </svg>
 );
 
 const ConfigIcon = () => (
   <svg {...iconProps}>
-    <path d="M2.75 5h2.5M8.75 5h8.5M2.75 10h8.5M14.75 10h2.5M2.75 15h4.5M10.75 15h6.5" />
-    <circle cx="7" cy="5" r="1.75" />
-    <circle cx="13" cy="10" r="1.75" />
-    <circle cx="9" cy="15" r="1.75" />
+    <path d="M3 5.5h3M10 5.5h7M3 10h8M15 10h2M3 14.5h2M9 14.5h8" />
+    <circle cx="8" cy="5.5" r="2" />
+    <circle cx="13" cy="10" r="2" />
+    <circle cx="7" cy="14.5" r="2" />
   </svg>
 );
 
@@ -67,7 +70,7 @@ const DashboardLayout = () => {
         <nav className="sidebar-nav" aria-label="Main navigation">
           {navigation.map(({ to, label, icon: Icon, end }) => (
             <NavLink key={to} to={to} end={end} onClick={() => setMenuOpen(false)} className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
-              <span className="sat-nav-icon"><Icon /></span>
+              <Icon />
               {label}
             </NavLink>
           ))}

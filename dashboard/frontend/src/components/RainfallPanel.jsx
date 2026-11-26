@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ArrowDownRight, ArrowRight, ArrowUpRight, CloudRain, Info } from 'lucide-react';
 import { analyseSequence, HEAVY_RAIN_MM, RAIN_CLASSES, renderRainMap } from '../lib/rainfall';
 
@@ -60,7 +60,7 @@ function TrendChart({ unit, data, nowMinutes, stepMinutes }) {
     <figure className="rain-chart">
       <div className="rain-chart-body">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 34, right: 26, bottom: 0, left: -6 }}>
+          <ComposedChart data={data} margin={{ top: 40, right: 38, bottom: 4, left: -6 }}>
             <defs>
               <linearGradient id="rain-fill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={SERIES} stopOpacity={0.16} />
@@ -88,12 +88,18 @@ function TrendChart({ unit, data, nowMinutes, stepMinutes }) {
               domain={[axis.min, axis.max]}
               tickFormatter={(value) => fixed(value, axis.digits)}
             />
-            <ReferenceLine x={nowMinutes} stroke="#b4bac4" strokeDasharray="3 3" label={{ value: 'Now', position: 'insideBottomRight', fill: '#8b95a5', fontSize: 10 }} />
+            <ReferenceArea x1={nowMinutes} x2={data[lastIndex].minutes} fill="#f4f5f7" fillOpacity={1} ifOverflow="extendDomain"
+              label={{ value: 'PROJECTION', position: 'insideTopRight', fill: '#8b95a5', fontSize: 10, fontWeight: 600, offset: 8 }} />
+            <ReferenceLine x={nowMinutes} stroke="#8b95a5" strokeDasharray="3 3"
+              label={{ value: 'NOW', position: 'top', fill: '#5f6b7e', fontSize: 10, fontWeight: 600, offset: 8 }} />
             <Tooltip content={<ChartTooltip unit={unit} stepMinutes={stepMinutes} />} cursor={{ stroke: '#8b95a5', strokeWidth: 1 }} />
-            <Area type="monotone" dataKey="observed" stroke="none" fill="url(#rain-fill)" baseValue={axis.min} isAnimationActive={false} activeDot={false} tooltipType="none" />
-            <Line type="monotone" dataKey="observed" stroke={SERIES} strokeWidth={2} dot={{ r: 4, fill: SERIES, stroke: '#fff', strokeWidth: 2 }} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} connectNulls={false} isAnimationActive={false}
+            <Area type="linear" dataKey="observed" stroke="none" fill="url(#rain-fill)" baseValue={axis.min} isAnimationActive={false} activeDot={false} tooltipType="none" />
+            <Line type="linear" dataKey="observed" stroke={SERIES} strokeWidth={2} dot={{ r: 4, fill: SERIES, stroke: '#fff', strokeWidth: 2 }} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} connectNulls={false} isAnimationActive={false}
               label={(props) => <PointLabel {...props} target={lastObserved} tone="solid" />} />
-            <Line type="monotone" dataKey="projected" stroke={SERIES} strokeWidth={2} strokeDasharray="5 4" dot={{ r: 4, fill: '#fff', stroke: SERIES, strokeWidth: 2, strokeDasharray: '0' }} activeDot={{ r: 5, fill: '#fff', stroke: SERIES, strokeWidth: 2, strokeDasharray: '0' }} connectNulls={false} isAnimationActive={false}
+            <Line type="linear" dataKey="projected" stroke={SERIES} strokeWidth={2} strokeDasharray="5 4"
+              dot={({ cx, cy, index }) => (index <= lastObserved || cx == null
+                ? <g key={index} />
+                : <circle key={index} cx={cx} cy={cy} r={4} fill="#fff" stroke={SERIES} strokeWidth={2} />)} activeDot={{ r: 5, fill: '#fff', stroke: SERIES, strokeWidth: 2, strokeDasharray: '0' }} connectNulls={false} isAnimationActive={false}
               label={(props) => <PointLabel {...props} target={lastIndex} tone="outline" />} />
           </ComposedChart>
         </ResponsiveContainer>
@@ -200,7 +206,7 @@ export default function RainfallPanel({ result, source }) {
       <div className="rain-body">
         <div className="rain-body-chart">
           <div className="rain-block-head">
-            <strong>Mean rain rate</strong>
+            <strong>Mean rain rate <span className="rain-unit">mm/h</span></strong>
             <span className="rain-chart-key">
               <span><i className="rain-key-solid" aria-hidden="true" />Observed</span>
               <span><i className="rain-key-dashed" aria-hidden="true" />Projected</span>
@@ -223,13 +229,17 @@ export default function RainfallPanel({ result, source }) {
           <figure className="rain-map-figure">
             {mapImage && <img src={mapImage} alt={`Estimated rain rate, ${selected.label}`} />}
             <figcaption className="rain-scale">
-              <span className="rain-scale-bar">
-                {RAIN_CLASSES.map((item) => <i key={item.label} style={{ background: item.color }} />)}
+              <span className="rain-scale-track">
+                <span className="rain-scale-bar">
+                  {RAIN_CLASSES.map((item) => <i key={item.label} style={{ background: item.color }} />)}
+                </span>
+                <span className="rain-scale-ticks">
+                  {RAIN_CLASSES.map((item, index) => (
+                    <span key={item.label} style={{ left: `${(index / RAIN_CLASSES.length) * 100}%` }}>{item.min}</span>
+                  ))}
+                </span>
               </span>
-              <span className="rain-scale-ticks">
-                {RAIN_CLASSES.map((item) => <span key={item.label}>{item.min}</span>)}
-                <span>mm/h</span>
-              </span>
+              <span className="rain-scale-unit">mm/h</span>
             </figcaption>
           </figure>
         </div>
