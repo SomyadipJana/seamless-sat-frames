@@ -8,7 +8,7 @@ const feeds = [
   { id: 'radar', label: 'Radar', icon: Radar, product: 'DWR RCTLS · Maximum reflectivity', source: '/gallery/index.html?ds=dwr', maxAge: 60 },
   { id: 'weather', label: 'Weather', icon: CloudRain, product: 'WRF · Ahmedabad temperature forecast', source: '/gallery/index.html?ds=weather' },
   { id: 'ocean', label: 'Ocean state', icon: Waves, product: 'Regional · Significant wave height forecast', source: '/gallery/index.html?ds=ocean' },
-  { id: 'live', label: 'Live map', icon: Radio, product: 'MOSDAC LIVE', source: '/live/lite/index.html' },
+  { id: 'live', label: 'Live overview', icon: Radio, product: 'All products', source: '/live/lite/index.html' },
 ];
 const formatTime = new Intl.DateTimeFormat('en-IN', {
   timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short',
@@ -104,6 +104,63 @@ function Preview({ feed }) {
   );
 }
 
+function LiveTile({ feed }) {
+  const [frame, setFrame] = useState(null);
+  const [state, setState] = useState('loading');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function refresh() {
+      try {
+        const response = await fetch('/feeds/mosdac/' + feed.id, { signal: controller.signal, cache: 'no-store' });
+        const listing = await response.json();
+        if (!response.ok) throw new Error(listing.error);
+        const frames = listing.frames ?? [];
+        setFrame(frames[defaultFrame(frames, feed)] ?? null);
+        setState(frames.length ? 'ready' : 'empty');
+      } catch {
+        if (!controller.signal.aborted) setState((current) => (current === 'ready' ? current : 'error'));
+      }
+    }
+    refresh();
+    const timer = window.setInterval(refresh, 5 * 60_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [feed]);
+
+  const Icon = feed.icon;
+  const time = frame?.timestamp ? formattedIST(frame.timestamp)
+    : frame?.run_date ? 'Run ' + frame.run_date + ' · +' + frame.lead_hours + ' h' : null;
+  return (
+    <article className="live-tile">
+      <header>
+        <span className="live-tile-title"><Icon size={15} aria-hidden="true" />{feed.label}</span>
+        {state === 'ready' && <span className="live-dot" aria-label="Live" />}
+      </header>
+      <div className="live-tile-image">
+        {state === 'ready' && frame
+          ? <img src={frame.url} alt={feed.product} loading="lazy" onError={() => setState('error')} />
+          : <p role="status">{state === 'loading' ? 'Loading…' : state === 'empty' ? 'No images published' : 'Feed unavailable'}</p>}
+      </div>
+      <footer>
+        <span>{feed.product}</span>
+        <span className="tabular-nums">{time ?? '—'}</span>
+      </footer>
+    </article>
+  );
+}
+
+function LiveBoard() {
+  const tiles = feeds.filter((item) => item.id !== 'live');
+  return (
+    <div className="live-board">
+      <p className="live-board-note">Latest frame from each MOSDAC product, refreshed every 5 minutes.</p>
+      <div className="live-grid">
+        {tiles.map((item) => <LiveTile key={item.id} feed={item} />)}
+      </div>
+    </div>
+  );
+}
+
 export default function GlobalView() {
   const [feed, setFeed] = useState(feeds[0]);
   return (
@@ -122,16 +179,7 @@ export default function GlobalView() {
           </button>
         ))}
       </div>
-      {feed.id === 'live' ? (
-        <div className="mosdac-live">
-          <Radio size={34} />
-          <h3>MOSDAC LIVE interactive map</h3>
-          <p>Explore the provider’s latest geospatial layers and their timestamps in the official viewer.</p>
-          <a className="sat-primary" href={origin + feed.source} target="_blank" rel="noopener noreferrer">
-            <ExternalLink size={16} /> Open MOSDAC LIVE
-          </a>
-        </div>
-      ) : <Preview key={feed.id} feed={feed} />}
+      {feed.id === 'live' ? <LiveBoard /> : <Preview key={feed.id} feed={feed} />}
     </section>
   );
 }

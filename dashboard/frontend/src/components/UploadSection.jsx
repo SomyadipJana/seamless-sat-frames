@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { CloudRain, Database, ImagePlus, Layers, Play, Satellite, Upload } from 'lucide-react';
+import Select from './ui/Select';
+import { CloudRain, ImagePlus, Layers, Play, Satellite, Upload } from 'lucide-react';
 
 const frameFields = [
   ['frame1', 'First observation'],
@@ -16,7 +17,7 @@ export default function UploadSection({ onRun, busy, error, resolution, setResol
     <section className="sat-panel sat-setup" aria-labelledby="run-settings">
       <div className="sat-panel-header">
         <div className="sat-heading-icon"><Layers size={19} /></div>
-        <div><h2 id="run-settings">Run setup</h2><p>Choose inputs and frame spacing.</p></div>
+        <div><h2 id="run-settings">Run setup</h2><p>Inputs and frame spacing</p></div>
       </div>
       <form className="sat-form" onSubmit={(event) => {
         event.preventDefault();
@@ -25,19 +26,17 @@ export default function UploadSection({ onRun, busy, error, resolution, setResol
         <fieldset disabled={busy}>
           <legend className="sat-label">Data source</legend>
           <div className="sat-segment" aria-label="Data source">
-            <button type="button" aria-pressed={milton} onClick={() => setSource('milton')}><CloudRain size={16} /> Milton</button>
-            <button type="button" aria-pressed={source === 'sample'} onClick={() => setSource('sample')}><Satellite size={16} /> GOES-18</button>
-            <button type="button" aria-pressed={!sample} onClick={() => { if (sample) setNames({}); setSource('upload'); }}><Upload size={16} /> Upload</button>
+            <button type="button" aria-pressed={milton} onClick={() => setSource('milton')}><CloudRain size={15} /> Milton</button>
+            <button type="button" aria-pressed={source === 'sample'} onClick={() => setSource('sample')}><Satellite size={15} /> GOES-18</button>
+            <button type="button" aria-pressed={!sample} onClick={() => { if (sample) setNames({}); setSource('upload'); }}><Upload size={15} /> Upload</button>
           </div>
           {sample ? (
-            <div className="sat-source">
-              <Database size={18} />
-              <div>
-                <strong>{milton ? 'Hurricane Milton' : 'GOES-18 ABI Channel 13'}</strong>
-                <p>{milton ? 'GOES-16 thermal infrared, 384 ? 384 px' : 'Thermal infrared, 512 ? 512 px'}</p>
-                <p>{milton ? '9 Oct 2024, 18:01?18:31 UTC' : '1 Jan 2024, 12:00?12:20 UTC'}</p>
-              </div>
-            </div>
+            <dl className="sat-source-meta">
+              <div><dt>Dataset</dt><dd>{milton ? 'Hurricane Milton' : 'GOES-18 ABI Ch. 13'}</dd></div>
+              <div><dt>Sensor</dt><dd>{milton ? 'GOES-16 thermal IR' : 'GOES-18 thermal IR'}</dd></div>
+              <div><dt>Grid</dt><dd>{milton ? '384 × 384 px' : '512 × 512 px'}</dd></div>
+              <div><dt>Window</dt><dd>{milton ? '9 Oct 2024 · 18:01–18:31 UTC' : '1 Jan 2024 · 12:00–12:20 UTC'}</dd></div>
+            </dl>
           ) : (
             <div className="sat-uploads">
               <p className="sat-hint">Use aligned thermal infrared PNG or JPEG frames from different times on the same grid and intensity scale. Large frames are scaled together.</p>
@@ -57,22 +56,22 @@ export default function UploadSection({ onRun, busy, error, resolution, setResol
               </label>
             </div>
           )}
-          <label className="sat-field">
-            <span>Interpolation method</span>
-            <select name="method" value={method} onChange={(event) => setMethod(event.target.value)}>
-              <option value="linear">Linear blend</option>
-              <option value="u-net" disabled={unetAvailable === false}>U-Net (experimental)</option>
-            </select>
-          </label>
-          <label className="sat-field">
-            <span>Interpolation steps</span>
-            <select name="resolution" value={resolution} onChange={(event) => setResolution(event.target.value)}>
-              <option value="15min">Midpoint</option>
-              <option value="7.5min">Midpoint and quarters</option>
-            </select>
-          </label>
+          <div className="sat-field">
+            <span id="method-label">Interpolation method</span>
+            <Select name="method" value={method} onChange={setMethod} ariaLabelledBy="method-label" options={[
+              { value: 'linear', label: 'Linear blend', description: 'Pixel-wise average of the endpoints' },
+              { value: 'u-net', label: 'U-Net', description: unetAvailable === false ? 'Unavailable: no compatible checkpoint loaded' : 'Experimental learned interpolation', disabled: unetAvailable === false },
+            ]} />
+          </div>
+          <div className="sat-field">
+            <span id="steps-label">Interpolation steps</span>
+            <Select name="resolution" value={resolution} onChange={setResolution} ariaLabelledBy="steps-label" options={[
+              { value: '15min', label: 'Midpoint', description: 'One frame between observations' },
+              { value: '7.5min', label: 'Midpoint and quarters', description: 'Three frames between observations' },
+            ]} />
+          </div>
           <button className="sat-primary" type="submit">
-            <Play size={17} fill="currentColor" aria-hidden="true" /> {busy ? 'Generating frames…' : sample ? (milton ? 'Run Hurricane Milton' : 'Run GOES sample') : 'Interpolate frames'}
+            <Play size={14} fill="currentColor" aria-hidden="true" /> {busy ? 'Running simulation…' : 'Run simulation'}
           </button>
         </fieldset>
         {busy && <p className="sat-hint" role="status">Processing the satellite observations.</p>}

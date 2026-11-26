@@ -6,7 +6,6 @@ export default function SatellitesPage() {
     <div className="sat-workspace">
       <header className="sat-page-header">
         <h1>Satellites</h1>
-        <p>Latest available satellite imagery, radar observations, and forecasts.</p>
       </header>
       <GlobalView />
     </div>

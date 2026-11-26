@@ -21,18 +21,18 @@ export default function MetricsPanel({ result }) {
         </div>
       </div>
       {scores ? (
-        <table className="sat-scores">
-          <thead><tr><th scope="col">Metric</th><th scope="col">{usingUnet ? 'U-Net' : 'Linear blend'}</th>{usingUnet && <th scope="col">Linear blend</th>}</tr></thead>
-          <tbody>
-            {rows.map(([key, title]) => (
-              <tr key={key}>
-                <th scope="row">{title}</th>
-                <td>{scores[key] === 'Infinity' ? '?' : scores[key] ?? '—'}{key === 'psnr' && scores[key] && ' dB'}</td>
-                {usingUnet && <td>{scores.baseline[key] === 'Infinity' ? '?' : scores.baseline[key] ?? '—'}</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <dl className="sat-kpis">
+          {rows.map(([key, title]) => (
+            <div className="sat-kpi" key={key}>
+              <dt>{title}</dt>
+              <dd>
+                {scores[key] === 'Infinity' ? '∞' : scores[key] ?? '—'}
+                {key === 'psnr' && scores[key] && <small> dB</small>}
+              </dd>
+              {usingUnet && <dd className="sat-kpi-baseline">Linear blend {scores.baseline[key] === 'Infinity' ? '∞' : scores.baseline[key] ?? '—'}</dd>}
+            </div>
+          ))}
+        </dl>
       ) : (
         <p className="sat-eval-empty">{result
           ? 'Add an observed midpoint to score this prediction.'

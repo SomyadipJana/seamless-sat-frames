@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Select from './ui/Select';
 import { Download, Pause, Play, ScanLine, SkipBack, SkipForward } from 'lucide-react';
 
 const formatMinutes = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 });
@@ -67,16 +68,16 @@ export default function ComparisonViewer({ result }) {
       </div>
       <div className="sat-result-body">
         <div className="sat-result-toolbar">
-          <label className="sat-field">
-            Analysis layer
-            <select value={layer} onChange={(event) => {
+          <div className="sat-field">
+            <span id="layer-label">Analysis layer</span>
+            <Select value={layer} ariaLabelledBy="layer-label" onChange={(next) => {
               setPlaying(false);
-              setLayer(event.target.value);
-            }}>
-              <option value="sequence">Satellite sequence</option>
-              {Object.entries(views).map(([key, [name]]) => <option key={key} value={key}>{name}</option>)}
-            </select>
-          </label>
+              setLayer(next);
+            }} options={[
+              { value: 'sequence', label: 'Satellite sequence' },
+              ...Object.entries(views).map(([key, [label]]) => ({ value: key, label })),
+            ]} />
+          </div>
           {canCompare && !playing && <label className="sat-compare-control">
             <input type="checkbox" checked={compareEnabled} onChange={(event) => setCompareEnabled(event.target.checked)} />
             Compare observed midpoint
@@ -84,7 +85,7 @@ export default function ComparisonViewer({ result }) {
         </div>
         {(resized || result.identical_endpoints) && (
           <div className="sat-result-notes" role="status">
-            {resized && <p>{size.input_width} ? {size.input_height} input ? processed at {size.width} ? {size.height}.</p>}
+            {resized && <p>{size.input_width} × {size.input_height} input → processed at {size.width} × {size.height}.</p>}
             {result.identical_endpoints && <p>Both endpoints have the same image content. Use observations from different times to see motion.</p>}
           </div>
         )}
