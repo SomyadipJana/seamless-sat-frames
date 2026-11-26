@@ -638,3 +638,21 @@ body {
 /* Cards that host dropdowns must not clip the open menu. */
 .sat-setup, .sat-result, .sat-config-grid .sat-panel { overflow: visible; }
 .sat-setup .ui-select.is-open, .sat-result .ui-select.is-open { z-index: 60; }
+
+/* ---------- Run progress ---------- */
+.sat-run-host { position: relative; }
+.sat-run-overlay { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 20px; background: rgb(20 21 24 / 62%); backdrop-filter: blur(3px); }
+.sat-run-card { width: min(100%, 360px); padding: 18px 18px 16px; border-radius: 12px; background: #fff; box-shadow: 0 20px 50px -16px rgb(0 0 0 / 45%); text-align: left; }
+.sat-run-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: .875rem; color: var(--s-ink); }
+.sat-run-top strong { font-weight: 600; }
+.sat-run-top span { font-size: .8125rem; font-weight: 600; color: var(--s-muted); }
+.sat-run-bar { height: 4px; margin-top: 12px; border-radius: 999px; background: var(--s-sunken); overflow: hidden; }
+.sat-run-bar i { display: block; height: 100%; border-radius: inherit; background: var(--s-ink); transition: width .08s linear; }
+.sat-run-steps { display: grid; gap: 7px; margin-top: 14px; list-style: none; font-size: .78rem; color: var(--s-faint); }
+.sat-run-steps li { display: flex; align-items: center; gap: 9px; }
+.sat-run-steps li::before { content: ''; width: 7px; height: 7px; flex: none; border: 1.5px solid currentColor; border-radius: 50%; }
+.sat-run-steps li.is-done { color: var(--s-muted); }
+.sat-run-steps li.is-done::before { background: var(--s-muted); border-color: var(--s-muted); }
+.sat-run-steps li.is-active { color: var(--s-ink); font-weight: 600; }
+.sat-run-steps li.is-active::before { border-color: var(--s-ink); animation: sat-pulse 1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .sat-run-bar i { transition: none; } .sat-run-steps li.is-active::before { animation: none; } }

@@ -6,6 +6,35 @@ import MetricsPanel from '../components/MetricsPanel';
 import RainfallPanel from '../components/RainfallPanel';
 import UploadSection from '../components/UploadSection';
 
+// Every run is held on screen for at least this long so its stages can be read.
+const MIN_RUN_MS = 5000;
+const STAGES = [
+  'Sending frames to the server',
+  'Interpolating intermediate frames',
+  'Scoring the predicted midpoint',
+  'Estimating rainfall',
+];
+
+function RunProgress({ progress }) {
+  const stage = Math.min(STAGES.length - 1, Math.floor(progress * STAGES.length));
+  return (
+    <div className="sat-run-overlay" role="status" aria-live="polite">
+      <div className="sat-run-card">
+        <div className="sat-run-top">
+          <strong>{STAGES[stage]}</strong>
+          <span className="tabular-nums">{Math.round(progress * 100)}%</span>
+        </div>
+        <div className="sat-run-bar"><i style={{ width: `${progress * 100}%` }} /></div>
+        <ol className="sat-run-steps">
+          {STAGES.map((label, index) => (
+            <li key={label} className={index < stage ? 'is-done' : index === stage ? 'is-active' : ''}>{label}</li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [source, setSource] = useState('milton');
   const [method, setMethod] = useState('linear');
@@ -15,6 +44,16 @@ export default function DashboardPage() {
   const [busy, setBusy] = useState(false);
   const [elapsed, setElapsed] = useState(null);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!busy) return undefined;
+    const started = performance.now();
+    const timer = window.setInterval(() => {
+      setProgress(Math.min(0.99, (performance.now() - started) / MIN_RUN_MS));
+    }, 80);
+    return () => window.clearInterval(timer);
+  }, [busy]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -30,6 +69,8 @@ export default function DashboardPage() {
 
   async function run(files) {
     const started = performance.now();
+    const minimumWait = new Promise((resolve) => { window.setTimeout(resolve, MIN_RUN_MS); });
+    setProgress(0);
     setBusy(true);
     setError('');
     setResult(null);
@@ -46,8 +87,11 @@ export default function DashboardPage() {
           : 'Interpolation failed. Check that the Flask backend is running on port 5000.'));
       }
       setElapsed((performance.now() - started) / 1000);
+      await minimumWait;
+      setProgress(1);
       setResult(data);
     } catch (failure) {
+      await minimumWait;
       setError(failure.message);
     } finally {
       setBusy(false);
@@ -76,14 +120,16 @@ export default function DashboardPage() {
               </div>
               {source !== 'upload' ? (
                 <figure>
-                  <div className="sat-preview-image">
+                  <div className="sat-preview-image sat-run-host">
+                    {busy && <RunProgress progress={progress} />}
                     <img src={source === 'milton' ? '/milton-preview.webp' : '/goes-preview.webp'}
                          alt={source === 'milton' ? 'Thermal infrared image of Hurricane Milton' : 'Thermal infrared image of cloud bands'} />
                   </div>
                   <figcaption><strong>{source === 'milton' ? 'Hurricane Milton preview' : 'GOES-18 sample preview'}</strong><span>{source === 'milton' ? 'Observed midpoint at 18:16 UTC' : 'Observed midpoint at 12:10 UTC'}</span></figcaption>
                 </figure>
               ) : (
-                <div className="sat-preview-placeholder">
+                <div className="sat-preview-placeholder sat-run-host">
+                  {busy && <RunProgress progress={progress} />}
                   <Aperture size={38} aria-hidden="true" />
                   <p>Upload both endpoint observations to generate a sequence.</p>
                 </div>
